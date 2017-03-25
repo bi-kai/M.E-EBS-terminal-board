@@ -25,11 +25,10 @@ extern u16 frame_lengths;//当前帧总长度
 extern unsigned char cipherkey_radio[16];//本小区电台的私钥 
 
 u8 frame_window_counter=0;	//表示处理完的滑窗数，统计完整窗口数，24位位一个窗口
-u16 decoded_frame_index=0;//格雷码译码后缓冲区数组的索引值
 void frame_continues(void);//续传帧处理函数
 void frame_wakeup_broadcast(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAMESIZE]);//广播唤醒帧处理函数
-//void frame_wakeup_unicast(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAMESIZE]);//单播组播唤醒帧处理函数
-void frame_control(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAMESIZE]);//控制帧处理函数
+void frame_wakeup_unicast(void);//单播组播唤醒帧处理函数
+void frame_control(void);//控制帧处理函数
 void frame_secure(void);//认证帧处理函数
 
 int main(void)
@@ -42,8 +41,8 @@ int main(void)
 	u8 gray_decode_wrongbits=0;//格雷译码，24位检测出的错误数量(与timer.c中的同名变量不是一个)
 
 	u8 decoded_frame[DECODE_FRAMESIZE]={0};//格雷译码后数据的缓冲区
+	u16 decoded_frame_index=0;//格雷码译码后缓冲区数组的索引值
 	u8 frame_type=0;//帧类型
-	u16 test=0,test1=0;
 		
 	delay_init();	    	 //延时函数初始化	  
 	NVIC_Configuration(); 	 //设置NVIC中断分组2:2位抢占优先级，2位响应优先级
@@ -52,12 +51,11 @@ int main(void)
 //	WKUP_Init(); //待机唤醒初始化
 	LED1=0;
  	TIM5_Cap_Init(0XFFFF,72-1);	//以1Mhz的频率计数,0xFFFF为65.535ms
-	TIM3_Int_Init(9999,7199);//5hz的计数频率 
+	TIM3_Int_Init(1999,7199);//5hz的计数频率 
    	while(1)
 	{	  		 		 
 //接收完信道中的完整一帧后，对其格雷译码，还原出原始数据，存入decoded_frame[]中
-		if(((TIM5CH1_CAPTURE_STA&0X200)==0)&&(TIM5CH1_CAPTURE_STA&0X0800)&&(((frame_index+1)/24)>frame_window_counter)){ //未处理数据大于一个窗
-		
+		if((TIM5CH1_CAPTURE_STA&0X10)&&(((frame_index+1)/24)>frame_window_counter)){ //未处理数据大于一个窗
 		for(i=0;i<24;i++){
 			gray_decode_buf1[i]=receive_frame[i+frame_window_counter*24];//将接收缓冲区中未处理的数据放到缓冲窗中，准备格雷译码
 		}
@@ -66,19 +64,10 @@ int main(void)
 			decoded_frame[decoded_frame_index]=gray_decoded_buf1[11-i];//格雷译码后数据的缓冲区
 			decoded_frame_index++;//格雷码译码后缓冲区数组的索引值
 		}
-		frame_window_counter++;//解码窗滑动一次
 		if(decoded_frame_index*2==frame_lengths){
 			TIM5CH1_CAPTURE_STA|=0X0200;
-			frame_window_counter=0;
 		}
-printf("\r\n格雷：TIM5CH1_CAPTURE_STA=%d,frame_window_counter=%d,decoded_frame_index=%d,frame_lengths=%d\r\n",TIM5CH1_CAPTURE_STA,frame_window_counter,decoded_frame_index,frame_lengths);
-		}
-
-		if(test<65533)test++;
-		else if(test>=65533){test1++;test=0;}
-		if(test1==50){
-		printf("\r\nmain运行中!TIM5CH1_CAPTURE_STA=%d,frame_window_counter=%d,decoded_frame_index=%d\r\n",TIM5CH1_CAPTURE_STA,frame_window_counter,decoded_frame_index);
-		test1=0;
+		frame_window_counter++;//解码窗滑动一次
 		}
 
 
@@ -118,10 +107,11 @@ printf("\r\n格雷：TIM5CH1_CAPTURE_STA=%d,frame_window_counter=%d,decoded_frame_i
 					frame_continues();//续传帧处理函数
 					break;//续传帧
 				case 1:
-					frame_wakeup_broadcast(decoded_frame_index,decoded_frame);//广播唤醒帧处理函数(单播组播广播一并处理)
+					if((decoded_frame[2]*2+decoded_frame[3])==2){frame_wakeup_broadcast(decoded_frame_index,decoded_frame);} //广播唤醒帧处理函数
+					else if(((decoded_frame[2]*2+decoded_frame[3])==1)||((decoded_frame[2]*2+decoded_frame[3])==3)){frame_wakeup_unicast();}//单播、组播唤醒帧处理函数
 					break;//唤醒帧
 				case 2:
-					frame_control(decoded_frame_index,decoded_frame);//控制帧处理函数
+					frame_control();//控制帧处理函数
 					break;//控制帧
 				case 3:
 					frame_secure();//认证帧处理函数
@@ -132,7 +122,6 @@ printf("\r\n格雷：TIM5CH1_CAPTURE_STA=%d,frame_window_counter=%d,decoded_frame_i
 		   TIM5CH1_CAPTURE_STA=0;//帧处理完毕的清零
 		   decoded_frame_index=0; 
 		   frame_window_counter=0;
-		   TIM5_Cap_Init(0XFFFF,72-1);
 		   TIM_Cmd(TIM5,ENABLE);
 		   
 		   
@@ -163,68 +152,6 @@ void frame_wakeup_broadcast(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAM
 	   if(i<(decoded_frame_index-36)){//把格雷译码后的数据中后36位前的内容放到aes_bits[]中
 		  aes_bits[i]=decoded_frame[i];
 	  }else{
- 	  	  aes_bits[i]=0;//不够128位则补零，超过128，则此处不执行，仅取前128位
-	  }
-	}
-	printf("\r\nAES string:\r\n");
-	for(index=0;index<128;index++)//接收到的有用数据串，用于AES
-	{
-		  printf("%d",aes_bits[index]);
-	}
-	bit_char(aes_bits,aes_char);//比特流转4*4u8矩阵
-	Encrypt(aes_char,cipherkey_radio);
-	char_bit(aes_char,aes_bits);
-	printf("\r\nAES native string:\r\n");
-	for(index=0;index<128;index++)//AES本地校验串
-	{
-	     printf("%d",aes_bits[index]);
-	}
-	printf("\r\n");
-	i=0;
-	for(index=(decoded_frame_index-36);index<decoded_frame_index;index++){//本地计算的AES与传送的AES进行比对
-	    if(decoded_frame[index]!=aes_bits[i]){//如果有某一位不同
-//			 TIM5CH1_CAPTURE_STA=0;//各关键寄存器清零，等待接收帧
-//			 decoded_frame_index=0; 
-//			 frame_window_counter=0;
-//			 TIM_Cmd(TIM5,ENABLE);
-			 printf("\r\nWakeup AES wrong!!\r\n"); 
-			 return;//检测到不同，立刻终止验证
-		  }
-		  i++;
-	}
-	if(i==36){TIM5CH1_CAPTURE_STA|=0X0400;}//AES验证通过
-/*************************************目标地址提取************************************************************/
-	if(TIM5CH1_CAPTURE_STA&0X0400){//AES检测通过
-		if((decoded_frame[2]*2+decoded_frame[3])==2){//广播唤醒帧处理
-			printf("broadcast wakeup AES SUCCESS\r\n\r\n");
-		} 
-		else if((decoded_frame[2]*2+decoded_frame[3])==1){//单播唤醒帧处理
-			printf("unicast wakeup AES SUCCESS\r\n\r\n");
-
-		}else if((decoded_frame[2]*2+decoded_frame[3])==3){//组播唤醒帧处理
-			printf("multicast wakeup AES SUCCESS\r\n\r\n");
-
-		}else printf("\r\nfinal wrong!!\r\n");   
-		   
-		   
-	}
-	return;
-}
-
-//void frame_wakeup_unicast(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAMESIZE]){//单播组播唤醒帧处理函数
-//	
-//}
-
-void frame_control(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAMESIZE]){//控制帧处理函数
-	u8 i=0;
-	u16 index=0;
-	u8 aes_bits[128]={0};//AES加密数据比特流
-	u8 aes_char[4][4]={0};//AES	128bits转换位4*4的u8矩阵
-	/**************************************AES校验**************************************************************/
-	for(i=0;i<128;i++){
-	   if(i<(decoded_frame_index-36)){//把格雷译码后的数据中后36位前的内容放到aes_bits[]中
-		  aes_bits[i]=decoded_frame[i];
-	  }else{
 	  	  aes_bits[i]=0;//不够128位则补零，超过128，则此处不执行，仅取前128位
 	  }
 	}
@@ -237,62 +164,37 @@ void frame_control(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAMESIZE]){/
 	Encrypt(aes_char,cipherkey_radio);
 	char_bit(aes_char,aes_bits);
 	printf("\r\nAES native string:\r\n");
-	for(index=0;index<128;index++)//AES本地校验串
+	for(index=0;index<128;index++)//格雷解码后的数据帧
 	{
 	     printf("%d",aes_bits[index]);
 	}
 	printf("\r\n");
 	i=0;
-	for(index=(decoded_frame_index-36);index<decoded_frame_index;index++){//本地计算的AES与传送的AES进行比对
+	for(index=(decoded_frame_index-36-1);index<decoded_frame_index;index++){//本地计算的AES与传送的AES进行比对
 	    if(decoded_frame[index]!=aes_bits[i]){//如果有某一位不同
-			 printf("\r\nControl AES wrong!!\r\n"); 
+			 TIM5CH1_CAPTURE_STA=0;//各关键寄存器清零，等待接收帧
+			 decoded_frame_index=0; 
+			 frame_window_counter=0;
+			 TIM_Cmd(TIM5,ENABLE);
 			 return;//检测到不同，立刻终止验证
 		  }
 		  i++;
 	}
-	if(i==36){TIM5CH1_CAPTURE_STA|=0X0400;}//AES验证通过
-/*************************************控制代号提取************************************************************/
-	index=0;//控制编号的索引值
-	if(TIM5CH1_CAPTURE_STA&0X0400){//AES检测通过
-	 	for(i=2;i<12;i++){
-			index|=decoded_frame[i]<<(11-i);
-		}
-		printf("\r\nwaring index=%d\r\n",index);
-		switch(index){
-			case 0:
+	if(i==35){TIM5CH1_CAPTURE_STA|=0X0400;}//AES验证通过
+/*************************************帧计数器检测************************************************************/
+	if(TIM5CH1_CAPTURE_STA&0X0400){//AES检测通过时
+		   
+		   
+		   
+	}
+}
 
-			break;
-			case 1:
+void frame_wakeup_unicast(void){//单播组播唤醒帧处理函数
 
-			break;
-			case 2:
+}
 
-			break;
-			case 3:
+void frame_control(void){//控制帧处理函数
 
-			break;
-			case 4:
-
-			break;
-			case 5:
-
-			break;
-			case 6:
-
-			break;
-			case 7:
-
-			break;
-			case 8:
-
-			break;
-			case 9:
-
-			break;
-		
-		}
-		
-	} 
 }
 
 void frame_secure(void){//认证帧处理函数
