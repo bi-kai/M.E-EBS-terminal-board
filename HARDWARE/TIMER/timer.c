@@ -118,18 +118,18 @@ void TIM5_Cap_Init(u16 arr,u16 psc)
    	NVIC_InitTypeDef NVIC_InitStructure;
 
 	RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM5, ENABLE);	//使能TIM5时钟
- 	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA, ENABLE);  //使能GPIOA时钟
+ 	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA|RCC_APB2Periph_GPIOB, ENABLE);  //使能GPIOA时钟
 	
 	GPIO_InitStructure.GPIO_Pin  = GPIO_Pin_0;  //PA0 清除之前设置  
 	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IPD; //PA0 输入  
 	GPIO_Init(GPIOA, &GPIO_InitStructure);
 	GPIO_ResetBits(GPIOA,GPIO_Pin_0);						 //PA0 下拉
 
- GPIO_InitStructure.GPIO_Pin = GPIO_Pin_5;				 //LED0-->PB.5 端口配置
- GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP; 		 //推挽输出
- GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;		 //IO口速度为50MHz
- GPIO_Init(GPIOA, &GPIO_InitStructure);					 //根据设定参数初始化GPIOB.5
- GPIO_ResetBits(GPIOA,GPIO_Pin_5);
+//	GPIO_InitStructure.GPIO_Pin = GPIO_Pin_6; //TIM_CH2
+//	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;  //复用推挽输出
+//	GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+//	GPIO_Init(GPIOB, &GPIO_InitStructure);
+// 	GPIO_ResetBits(GPIOB,GPIO_Pin_6);
  	
 	//初始化定时器5 TIM5	 
 	TIM_TimeBaseStructure.TIM_Period = arr; //设定计数器自动重装值 
@@ -178,7 +178,7 @@ void TIM5_IRQHandler(void)
 { 
    static u8 bit_counter_up=0;//位同步时，统计第n个高脉冲
    static u8 bit_counter_down=0;//位同步时，统计第n个低脉冲
-
+ 
    u8 i;//数组for循环的索引
 /*********************************位同步捕获*************************************/   
  	if((TIM5CH1_CAPTURE_STA&0X80)==0)//位同步捕获，还未成功捕获(优先捕获1码)	
@@ -194,7 +194,13 @@ void TIM5_IRQHandler(void)
 			frame_index=0;//帧缓冲清零，等待下一帧
 		}
 
-
+		 if(TIM5CH1_CAPTURE_STA==0)//控制寄存器若被清空，标志上一帧接收完毕，开始接收新的帧
+		 {
+		 	TIM_ITConfig(TIM5,TIM_IT_CC1,ENABLE);//接收新的帧，打开输入捕获
+			TIM_OC1PolarityConfig(TIM5,TIM_ICPolarity_Rising); //CC1P=0 设置为上升沿捕获
+			
+		 }
+		   
 		if (TIM_GetITStatus(TIM5, TIM_IT_CC1) != RESET)//捕获1发生捕获事件
 		{	
 			if(TIM5CH1_CAPTURE_STA&0X40)		//捕获到一个下降沿 		
@@ -287,15 +293,23 @@ void TIM5_IRQHandler(void)
 				{
 					TIM5CH1_CAPTURE_STA|=0X80; //得到位同步头！！！
 					TIM_ITConfig(TIM5,TIM_IT_CC1,DISABLE);//关闭输入捕获，准备接收巴克码
-					delay_us(24);//码元间隔50ns，码元的中间位置为最佳抽判时刻
-					TIM5->ARR=0X0031;//重新状态定时器的值，50ms中断，对PAin(0)抽判一次
+					delay_us((max_interval+min_interval)/4-1);//码元间隔50ns，码元的中间位置为最佳抽判时刻
+					TIM5->ARR=(max_interval+min_interval)/2-1;//0X0031;//重新状态定时器的值，50ms中断，对PAin(0)抽判一次(0x0030则会隔几个码元多采样一次；0X0031效果比较好；0X0032则会隔几个少采样一次)
 					buf_barker[10]=GPIO_ReadInputDataBit(GPIOA,GPIO_Pin_0);//位同步后，新到达的第一位存储在巴克码buf的第10位					
 				}
 				if(bit_counter_down==4){bit_counter_down=0;}		   //3
 				TIM5CH1_CAPTURE_VAL=0;	
 	 			TIM_SetCounter(TIM5,0);
 				TIM5CH1_CAPTURE_STA|=0X40;		//标记捕获到了上升沿
-		   		TIM_OC1PolarityConfig(TIM5,TIM_ICPolarity_Falling);		//CC1P=1 设置为下降沿捕获
+
+				if(TIM5CH1_CAPTURE_STA&0X80)
+				{
+					 TIM_OC1PolarityConfig(TIM5,TIM_ICPolarity_Rising); //CC1P=0 设置为上升沿捕获
+				}
+				else
+				{
+		   			TIM_OC1PolarityConfig(TIM5,TIM_ICPolarity_Falling);		//CC1P=1 设置为下降沿捕获
+				}
 			}		    
 		}			     	    					   
  	}
@@ -305,6 +319,7 @@ void TIM5_IRQHandler(void)
 	   if (TIM_GetITStatus(TIM5, TIM_IT_Update) != RESET)//位同步捕获完成后的超时处理
 	   {
 		   buf_barker[11]=GPIO_ReadInputDataBit(GPIOA,GPIO_Pin_0);//位同步后，新到达的bit
+
 		   for(i=0;i<11;i++)//收到最新数据后，将buf循环左移一位
 		   {
 		   		buf_barker[i]=buf_barker[i+1];
@@ -325,7 +340,14 @@ void TIM5_IRQHandler(void)
 			{
 				receive_frame[frame_index]=GPIO_ReadInputDataBit(GPIOA,GPIO_Pin_0); //当前时刻就是位同步后第一个码元的最佳抽判时刻
 				frame_index++;
-			}else  TIM5CH1_CAPTURE_STA|=0X08;//帧收完
+			}else 
+			{
+				TIM5CH1_CAPTURE_STA|=0X08;//帧收完
+				bit_counter_up=0;
+				bit_counter_down=0;
+				TIM5->ARR=0XFFFF;//0X0031;//重新状态定时器的值
+				TIM_Cmd(TIM5,DISABLE);
+			}
 		}
 	}
 

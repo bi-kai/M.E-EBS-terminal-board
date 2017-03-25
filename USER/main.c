@@ -30,7 +30,7 @@ extern u8 buf_barker[12];
  	LED_Init();			     //LED端口初始化
  
 // 	TIM3_PWM_Init(899,0); 		//不分频。PWM频率=72000/(899+1)=80Khz
- 	TIM5_Cap_Init(0X00FF,72-1);	//以1Mhz的频率计数 
+ 	TIM5_Cap_Init(0XFFFF,72-1);	//以1Mhz的频率计数 
    	while(1)
 	{
 // 		delay_ms(10);
@@ -64,10 +64,14 @@ extern u8 buf_barker[12];
 //		rate=-50;
 //		printf("fu:%d:\r\n",rate);
 //	}
-	if((TIM5CH1_CAPTURE_STA&0X80)&&(TIM5CH1_CAPTURE_STA&0X08)&&(inp==0))
-	{
-		inp=1;
 
+
+
+
+
+/****************以下用于打印测试******************/
+	if((TIM5CH1_CAPTURE_STA&0X80)&&(TIM5CH1_CAPTURE_STA&0X08))
+	{
 	   for(index=0;index<4;index++)
 	   {
 	   		printf("%d UP %d\r\n",index,bit_SYCN_UP[index]);
@@ -97,9 +101,20 @@ extern u8 buf_barker[12];
 	 {
 	 	 printf("%d",receive_frame[index]);
 	 }
+	 printf("\r\n");
+	 TIM5CH1_CAPTURE_STA=0;
+	 frame_index=0;
+	 barker_sum=0;
+	 TIM_ITConfig(TIM5,TIM_IT_CC1,DISABLE);//允许捕获中断//TIM5->DIER|=1<<1;   		 
+	 TIM_Cmd(TIM5,ENABLE ); 	//使能定时器5
 	}
-	
 
+//		if((TIM5CH1_CAPTURE_STA&0X80)&&(TIM5CH1_CAPTURE_STA&0X08))
+//		{
+//			TIM5CH1_CAPTURE_STA=0;
+//			PBout(7)=!PBout(7);	
+//			
+//		}
 	}//end of while
  }
 

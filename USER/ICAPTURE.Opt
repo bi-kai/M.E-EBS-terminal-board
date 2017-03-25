@@ -12,29 +12,28 @@
 
 Target (Target 1), 0x0004 // Tools: 'ARM-ADS'
 GRPOPT 1,(USER),1,0,0
-GRPOPT 2,(HARDWARE),0,0,0
+GRPOPT 2,(HARDWARE),1,0,0
 GRPOPT 3,(SYSTEM),0,0,0
 GRPOPT 4,(CORE),0,0,0
 GRPOPT 5,(FWLib),0,0,0
 
-OPTFFF 1,1,1,0,0,19,20,0,<.\main.c><main.c> { 44,0,0,0,0,0,0,0,1,0,0,0,255,255,255,255,255,255,255,255,248,255,255,255,226,255,255,255,0,0,0,0,0,0,0,0,108,2,0,0,252,0,0,0 }
+OPTFFF 1,1,1,419430400,0,78,78,0,<.\main.c><main.c> { 44,0,0,0,0,0,0,0,1,0,0,0,255,255,255,255,255,255,255,255,248,255,255,255,226,255,255,255,0,0,0,0,0,0,0,0,108,2,0,0,252,0,0,0 }
 OPTFFF 1,2,1,0,0,0,0,0,<.\stm32f10x_it.c><stm32f10x_it.c> 
 OPTFFF 1,3,1,0,0,0,0,0,<.\system_stm32f10x.c><system_stm32f10x.c> 
-OPTFFF 2,4,1,0,0,0,0,0,<..\HARDWARE\LED\led.c><led.c> 
-OPTFFF 2,5,1,0,0,0,0,0,<..\HARDWARE\KEY\key.c><key.c> 
-OPTFFF 2,6,1,838860802,0,295,328,0,<..\HARDWARE\TIMER\timer.c><timer.c> { 44,0,0,0,2,0,0,0,3,0,0,0,255,255,255,255,255,255,255,255,248,255,255,255,226,255,255,255,25,0,0,0,25,0,0,0,210,5,0,0,221,1,0,0 }
+OPTFFF 2,4,1,150994944,0,0,0,0,<..\HARDWARE\LED\led.c><led.c> 
+OPTFFF 2,5,1,620756992,0,0,0,0,<..\HARDWARE\KEY\key.c><key.c> 
+OPTFFF 2,6,1,922746882,0,205,226,0,<..\HARDWARE\TIMER\timer.c><timer.c> { 44,0,0,0,2,0,0,0,3,0,0,0,255,255,255,255,255,255,255,255,248,255,255,255,226,255,255,255,150,0,0,0,150,0,0,0,99,6,0,0,81,2,0,0 }
 OPTFFF 3,7,1,83886080,0,0,0,0,<..\SYSTEM\delay\delay.c><delay.c> 
 OPTFFF 3,8,1,0,0,0,0,0,<..\SYSTEM\sys\sys.c><sys.c> 
 OPTFFF 3,9,1,234881024,0,0,0,0,<..\SYSTEM\usart\usart.c><usart.c> 
 OPTFFF 4,10,1,0,0,0,0,0,<..\CORE\core_cm3.c><core_cm3.c> 
 OPTFFF 4,11,2,0,0,0,0,0,<..\CORE\startup_stm32f10x_hd.s><startup_stm32f10x_hd.s> 
 OPTFFF 5,12,1,0,0,0,0,0,<..\STM32F10x_FWLib\src\misc.c><misc.c> 
-OPTFFF 5,13,1,0,0,0,0,0,<..\STM32F10x_FWLib\src\stm32f10x_gpio.c><stm32f10x_gpio.c> 
+OPTFFF 5,13,1,285212672,0,0,0,0,<..\STM32F10x_FWLib\src\stm32f10x_gpio.c><stm32f10x_gpio.c> 
 OPTFFF 5,14,1,0,0,0,0,0,<..\STM32F10x_FWLib\src\stm32f10x_rcc.c><stm32f10x_rcc.c> 
-OPTFFF 5,15,1,436207616,0,0,0,0,<..\STM32F10x_FWLib\src\stm32f10x_tim.c><stm32f10x_tim.c> 
+OPTFFF 5,15,1,0,0,0,0,0,<..\STM32F10x_FWLib\src\stm32f10x_tim.c><stm32f10x_tim.c> 
 OPTFFF 5,16,1,0,0,0,0,0,<..\STM32F10x_FWLib\src\stm32f10x_usart.c><stm32f10x_usart.c> 
 
-ExtF <D:\broadcastsystem\MDK3.80A\workspace\speedcheck\HARDWARE\TIMER\timer.h> 1,7,0,{ 44,0,0,0,0,0,0,0,1,0,0,0,255,255,255,255,255,255,255,255,248,255,255,255,226,255,255,255,50,0,0,0,50,0,0,0,1,6,0,0,251,1,0,0 }
 
 TARGOPT 1, (Target 1)
  ADSCLK=8000000
