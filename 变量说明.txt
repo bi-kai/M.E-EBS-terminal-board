@@ -1,0 +1,64 @@
+main全局：
+
+
+
+
+
+
+time.c全局：
+
+u16 TIM5CH1_CAPTURE_STA=0;//输入捕获状态		    				
+u16	TIM5CH1_CAPTURE_VAL;	//输入捕获值
+u16	TIM5CH1_DOWN_CAPTURE_VAL;	//输入下降沿时间捕获值 
+u16 bit_SYCN_UP[BIT_SYNC_GROUPS];	 //位同步4个高电平持续时间，用于统计最佳抽判时刻
+u16 bit_SYCN_DOWN[BIT_SYNC_GROUPS];//位同步4个低电平持续时间，用于统计最佳抽判时刻
+u16 bit_SYCN_sum=0;//位同步高低电平码元持续时间和
+
+u8 receive_frame[ORIGEN_FRAMESIZE];//接收帧的缓冲区
+u16 frame_index=0;//数据帧中，比特位采样结果存储的索引值
+
+u8 buf_barker[12];//巴克码缓冲区，11位巴克码+1个新到bit，共12位空间
+u8 barker[]={1,1,1,0,0,0,1,0,0,1,0};//准确的巴克码组
+signed char barker_sum=0;//巴克码移位寄存器结果（可为负）
+u16 frame_lengths=0;//当前帧总长度
+
+u8 gray_decode_buf[24]={0};//格雷译码，24个码元为一组
+u8 gray_decoded_buf[24]={0};//格雷译码纠错后的24位码元，其前12位为原始信息的倒叙排列
+
+
+
+
+time.c私有：
+static u8 bit_counter_up=0;//位同步时，统计第n个高脉冲
+static u8 bit_counter_down=0;//位同步时，统计第n个低脉冲
+static u8 barker_counter=0;//巴克码移位比较次数，超过20次还没有帧同步上，则清空寄存器
+static u8 timeout_flag=0;//0：TIM5 update溢出时间内没有码元捕获；1：溢出时间内有码元被捕获到。功能：防止帧过长，产生update清零
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

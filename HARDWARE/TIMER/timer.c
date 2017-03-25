@@ -57,6 +57,7 @@ void TIM3_IRQHandler(void)   //TIM3中断
 		{
 			TIM_ClearITPendingBit(TIM3, TIM_IT_Update);  //清除TIMx的中断待处理位:TIM 中断源 
 			LED0=!LED0;
+			
 		}
 }
 
@@ -159,45 +160,48 @@ void TIM5_Cap_Init(u16 arr,u16 psc)
 }
 
 u16 TIM5CH1_CAPTURE_STA=0;//输入捕获状态		    				
-u16	TIM5CH1_CAPTURE_VAL;	//输入捕获值
-u16	TIM5CH1_DOWN_CAPTURE_VAL;	//输入下降沿时间捕获值 
-u16 bit_SYCN_UP[BIT_SYNC_GROUPS];	 //位同步4个高电平持续时间，用于统计最佳抽判时刻
-u16 bit_SYCN_DOWN[BIT_SYNC_GROUPS];//位同步4个低电平持续时间，用于统计最佳抽判时刻
-u16 bit_SYCN_sum=0;//位同步高低电平码元持续时间和
+u16	TIM5CH1_CAPTURE_VAL=0;	//输入捕获值
+u16	TIM5CH1_DOWN_CAPTURE_VAL=0;	//输入下降沿时间捕获值 
+u16 bit_SYCN_UP[BIT_SYNC_GROUPS]={0};//位同步4个高电平持续时间，用于统计最佳抽判时刻
+u16 bit_SYCN_DOWN[BIT_SYNC_GROUPS]={0};//位同步4个低电平持续时间，用于统计最佳抽判时刻
 
-u8 receive_frame[ORIGEN_FRAMESIZE];//接收帧的缓冲区
+u8 receive_frame[ORIGEN_FRAMESIZE]={0};//接收帧的缓冲区
 u16 frame_index=0;//数据帧中，比特位采样结果存储的索引值
 
-u8 buf_barker[12];//巴克码缓冲区，11位巴克码+1个新到bit，共12位空间
+u8 buf_barker[12]={0};//巴克码缓冲区，11位巴克码+1个新到bit，共12位空间
 u8 barker[]={1,1,1,0,0,0,1,0,0,1,0};//准确的巴克码组
 signed char barker_sum=0;//巴克码移位寄存器结果（可为负）
-u8 timeout_flag=0;//0：TIM5 update溢出时间内没有码元捕获；1：溢出时间内有码元被捕获到。功能：防止帧过长，产生update清零
-u16 frame_lengths=0;//当前帧总长度
-
-u8 gray_decode_buf[24]={0};//格雷译码，24个码元为一组
-u8 gray_decoded_buf[24]={0};//格雷译码纠错后的24位码元，其前12位为原始信息的倒叙排列
+u16 frame_lengths=0;//当前帧总长度 
+extern u8 frame_window_counter;//表示处理完的滑窗数，统计完整窗口数，24位位一个窗口
+extern u16 decoded_frame_index;//格雷码译码后缓冲区数组的索引值
 
 
+u8 tmp_buf=0;
 //定时器5中断服务程序	 
 void TIM5_IRQHandler(void)
 { 
    static u8 bit_counter_up=0;//位同步时，统计第n个高脉冲
    static u8 bit_counter_down=0;//位同步时，统计第n个低脉冲
+   static u8 timeout_flag=0;//0：TIM5 update溢出时间内没有码元捕获；1：溢出时间内有码元被捕获到。功能：防止帧过长，产生update清零	
    static u8 barker_counter=0;//巴克码移位比较次数，超过20次还没有帧同步上，则清空寄存器
+   u16 bit_SYCN_sum=0;//位同步高低电平码元持续时间和
+   u8 gray_decode_wrongbits=0;//格雷译码，24位检测出的错误数量
+
+   u8 gray_decode_buf[24]={0};//格雷译码，24个码元为一组
+   u8 gray_decoded_buf[24]={0};//格雷译码纠错后的24位码元，其前12位为原始信息的倒叙排列
  
-   u8 i;  //数组for循环的索引
+   u8 i=0;  //数组for循环的索引
 // signed char temp=0;
    
 /*********************************位同步捕获*************************************/   
  	if((TIM5CH1_CAPTURE_STA&0X80)==0)//位同步捕获，还未成功捕获(优先捕获1码)	
 	{	  
-		if (TIM_GetITStatus(TIM5, TIM_IT_Update) != RESET) //定时器超时，则全部清空		 
+		if (TIM_GetITStatus(TIM5, TIM_IT_Update) != RESET) //65.535定时器超时，则全部清空；此外，还要考虑主函数中对阵处理的时间		 
 		{	 
 			if(timeout_flag==0){   //update时间内值保持为零，说明这段时间内没有码元，故不是帧的中间部位，寄存器清零，等待帧接收
 				TIM5CH1_CAPTURE_STA=0;
 				TIM5CH1_CAPTURE_VAL=0; 
 				TIM_OC2PolarityConfig(TIM5,TIM_ICPolarity_Rising); //CC1P=0 设置为上升沿捕获
-	
 				bit_counter_up=0;//标记高电平数组为空
 				bit_counter_down=0;//标记低电平数组为空
 				frame_index=0;//帧缓冲清零，等待下一帧		
@@ -209,7 +213,10 @@ void TIM5_IRQHandler(void)
 		 if(TIM5CH1_CAPTURE_STA==0)//控制寄存器若被清空，标志上一帧接收完毕/高电平码元超时/第一帧，开始接收新的帧
 		 {
 		 	TIM_ITConfig(TIM5,TIM_IT_CC2,ENABLE);//TIM_IT_CC1,接收新的帧，打开输入捕获
-			TIM_OC2PolarityConfig(TIM5,TIM_ICPolarity_Rising); //CC1P=0 设置为上升沿捕获  			
+			TIM_OC2PolarityConfig(TIM5,TIM_ICPolarity_Rising); //CC1P=0 设置为上升沿捕获 
+			bit_counter_up=0;//标记高电平数组为空
+			bit_counter_down=0;
+			TIM5CH1_CAPTURE_VAL=0; 			
 		 }
 		   
 		if (TIM_GetITStatus(TIM5, TIM_IT_CC2) != RESET)//TIM_IT_CC1,捕获1，发生捕获事件
@@ -237,30 +244,32 @@ void TIM5_IRQHandler(void)
 						bit_SYCN_DOWN[bit_counter_down]=TIM5CH1_DOWN_CAPTURE_VAL/2-1;   //1
 						bit_counter_down++;								   //2 
 					}
-				}else if((TIM5CH1_CAPTURE_VAL>3*min_interval)&&(TIM5CH1_CAPTURE_VAL<3*max_interval))//出现误码，0->1，3个波特周期的高电平
-				{
-					if((TIM5CH1_CAPTURE_STA&0X07)<BIT_SYNC_GROUPS)//捕获到合适的高电平和低电平了
-					{
-						TIM5CH1_CAPTURE_STA+=2;
-						bit_SYCN_UP[bit_counter_up]=TIM5CH1_CAPTURE_VAL/3+3;   //1
-						bit_counter_up++;
-						bit_SYCN_DOWN[bit_counter_down]=TIM5CH1_DOWN_CAPTURE_VAL/3-1;   //1
-						bit_counter_down++;								   //2
-						bit_SYCN_UP[bit_counter_up]=TIM5CH1_CAPTURE_VAL/3+3;   //1
-						bit_counter_up++;								   //2 
-					}
-				}else if((TIM5CH1_CAPTURE_VAL>4*min_interval)&&(TIM5CH1_CAPTURE_VAL<4*max_interval))//位同步第八位0->1，与巴克码连接为4个波特周期高电平，根据情况看需不需要对5个连1做判断
-				{
-					if(((TIM5CH1_CAPTURE_STA&0X07)<BIT_SYNC_GROUPS)&&((TIM5CH1_CAPTURE_STA&0X07)>=2))//保证前面已经至少捕获到了2个有效高电平
-					{
-//						TIM5CH1_CAPTURE_STA+=1;
-//						bit_SYCN_UP[bit_counter_up]=TIM5CH1_CAPTURE_VAL/4;   //1
+				}
+//				else if((TIM5CH1_CAPTURE_VAL>3*min_interval)&&(TIM5CH1_CAPTURE_VAL<3*max_interval))//出现误码，0->1，3个波特周期的高电平
+//				{
+//					if((TIM5CH1_CAPTURE_STA&0X07)<BIT_SYNC_GROUPS)//捕获到合适的高电平和低电平了
+//					{
+//						TIM5CH1_CAPTURE_STA+=2;
+//						bit_SYCN_UP[bit_counter_up]=TIM5CH1_CAPTURE_VAL/3+3;   //1
+//						bit_counter_up++;
+//						bit_SYCN_DOWN[bit_counter_down]=TIM5CH1_DOWN_CAPTURE_VAL/3-1;   //1
+//						bit_counter_down++;								   //2
+//						bit_SYCN_UP[bit_counter_up]=TIM5CH1_CAPTURE_VAL/3+3;   //1
 //						bit_counter_up++;								   //2 
-						bit_SYCN_DOWN[bit_counter_down]=TIM5CH1_DOWN_CAPTURE_VAL/4-1;   //1
-						bit_counter_down++;
-						
-					}
-				}else //清零，等待重新接收
+//					}
+//				}else if((TIM5CH1_CAPTURE_VAL>4*min_interval)&&(TIM5CH1_CAPTURE_VAL<4*max_interval))//位同步第八位0->1，与巴克码连接为4个波特周期高电平，根据情况看需不需要对5个连1做判断
+//				{
+//					if(((TIM5CH1_CAPTURE_STA&0X07)<BIT_SYNC_GROUPS)&&((TIM5CH1_CAPTURE_STA&0X07)>=2))//保证前面已经至少捕获到了2个有效高电平
+//					{
+////						TIM5CH1_CAPTURE_STA+=1;
+////						bit_SYCN_UP[bit_counter_up]=TIM5CH1_CAPTURE_VAL/4;   //1
+////						bit_counter_up++;								   //2 
+//						bit_SYCN_DOWN[bit_counter_down]=TIM5CH1_DOWN_CAPTURE_VAL/4-1;   //1
+//						bit_counter_down++;
+//						
+//					}
+//				}
+				else //清零，等待重新接收
 				{
 					TIM5CH1_CAPTURE_STA=0;//非法0码脉冲，关闭脉冲计数
 					TIM5CH1_CAPTURE_VAL=0;
@@ -292,19 +301,21 @@ void TIM5_IRQHandler(void)
 						bit_SYCN_DOWN[bit_counter_down]=TIM5CH1_DOWN_CAPTURE_VAL/2-1;   //1
 						bit_counter_down++;								   //2
 					}
-				}else if((TIM5CH1_DOWN_CAPTURE_VAL>3*min_interval)&&(TIM5CH1_DOWN_CAPTURE_VAL<3*max_interval))//出现误码，3个波特周期的低电平
-				{
-					if(TIM5CH1_CAPTURE_STA&0X20) //低电平计数已经使能
-					{
-						TIM5CH1_CAPTURE_STA++;//出现三个低电平，其中一个发送的必然是高电平
-						bit_SYCN_UP[bit_counter_up]=TIM5CH1_CAPTURE_VAL/3+3;   //1
-						bit_counter_up++;
-						bit_SYCN_DOWN[bit_counter_down]=TIM5CH1_DOWN_CAPTURE_VAL/3-1;   //1
-						bit_counter_down++;								   //2
-						bit_SYCN_DOWN[bit_counter_down]=TIM5CH1_DOWN_CAPTURE_VAL/3-1;   //1
-						bit_counter_down++;								   //2
-					}
-				}else//清零，第一个上升沿到来或同步失败
+				}
+//				else if((TIM5CH1_DOWN_CAPTURE_VAL>3*min_interval)&&(TIM5CH1_DOWN_CAPTURE_VAL<3*max_interval))//出现误码，3个波特周期的低电平
+//				{
+//					if(TIM5CH1_CAPTURE_STA&0X20) //低电平计数已经使能
+//					{
+//						TIM5CH1_CAPTURE_STA++;//出现三个低电平，其中一个发送的必然是高电平
+//						bit_SYCN_UP[bit_counter_up]=TIM5CH1_CAPTURE_VAL/3+3;   //1
+//						bit_counter_up++;
+//						bit_SYCN_DOWN[bit_counter_down]=TIM5CH1_DOWN_CAPTURE_VAL/3-1;   //1
+//						bit_counter_down++;								   //2
+//						bit_SYCN_DOWN[bit_counter_down]=TIM5CH1_DOWN_CAPTURE_VAL/3-1;   //1
+//						bit_counter_down++;								   //2
+//					}
+//				}
+				else//清零，第一个上升沿到来或同步失败
 				{
 					TIM5CH1_CAPTURE_STA=0;	//清空
 					bit_counter_down=0;//标记低电平数组为空
@@ -324,33 +335,27 @@ void TIM5_IRQHandler(void)
 					{
 						bit_SYCN_sum+=bit_SYCN_DOWN[i];
 					}
+					bit_SYCN_sum+=50;//由于采到的高低脉冲都会有一定的误差，比如1000us的采成998us，对该变量加50us为对这种情况的修正，避免其取模时进入if条件
 					bit_SYCN_sum%=FSK_SPEED;
 					if(bit_SYCN_sum>((max_interval+min_interval)/4))//判决同步时刻超过1/2码元间隔
 					{
-						delay_us(3*(max_interval+min_interval)/4-bit_SYCN_sum-420);//码元间隔1ms，码元的中间位置为最佳抽判时刻,340为由示波器观察抽判时刻后的修正
+						delay_us(3*(max_interval+min_interval)/4-bit_SYCN_sum-10);//码元间隔1ms，码元的中间位置为最佳抽判时刻,50为由示波器观察抽判时刻后的修正
 					}else
 					{
-						delay_us((max_interval+min_interval)/4-bit_SYCN_sum-340);//码元间隔1ms，码元的中间位置为最佳抽判时刻,340为由示波器观察抽判时刻后的修正
+						delay_us((max_interval+min_interval)/4-bit_SYCN_sum-10);//码元间隔1ms，码元的中间位置为最佳抽判时刻,50为由示波器观察抽判时刻后的修正
 					}
 					buf_barker[10]=GPIO_ReadInputDataBit(GPIOA,GPIO_Pin_1);//位同步后，新到达的第一位存储在巴克码buf的第10位
 					TIM5->ARR=(max_interval+min_interval)/2-1;//0X0031;//重新状态定时器的值，1ms中断，对PAin(0)抽判一次(0x0030则会隔几个码元多采样一次；0X0031效果比较好；0X0032则会隔几个少采样一次)
 					bit_counter_down=0;
 					bit_counter_up=0;
-					barker_counter=0;//巴克码比较次数的清零					
+					barker_counter=0;//巴克码比较次数的清零
+					printf("\r\n位同步!"); 					
 				}
 				if((bit_counter_down>=BIT_SYNC_GROUPS)||(bit_counter_up>=BIT_SYNC_GROUPS)){bit_counter_down=0;bit_counter_up=0;}		   //3
 				TIM5CH1_CAPTURE_VAL=0;	
 	 			TIM_SetCounter(TIM5,0);//计数器值清零
 				TIM5CH1_CAPTURE_STA|=0X40;		//标记捕获到了上升沿
-
-				if(TIM5CH1_CAPTURE_STA&0X80)
-				{
-					 TIM_OC2PolarityConfig(TIM5,TIM_ICPolarity_Rising); //CC1P=0 设置为上升沿捕获
-				}
-				else
-				{
-		   			TIM_OC2PolarityConfig(TIM5,TIM_ICPolarity_Falling);		//CC1P=1 设置为下降沿捕获
-				}
+	   			TIM_OC2PolarityConfig(TIM5,TIM_ICPolarity_Falling);		//CC1P=1 设置为下降沿捕获
 			}		    
 		}//end of 捕获事件			     	    					   
  	}
@@ -371,8 +376,23 @@ void TIM5_IRQHandler(void)
 			   else barker_sum--;
 		   }
 		   barker_counter++;//移位比较一次
-		   if(barker_sum>=9){TIM5CH1_CAPTURE_STA|=0X10; frame_index=0;frame_lengths=ORIGEN_FRAMESIZE;}//帧缓冲清零，准备接收数据
-		   else if(barker_counter>20){TIM5CH1_CAPTURE_STA=0;}//移位20次还没有同步，则清零寄存器
+//		   printf("\r\n巴克码比较%d次!",barker_counter);
+		   if(barker_sum>=9){
+		   	   frame_index=0;
+			   frame_lengths=ORIGEN_FRAMESIZE-20;//1100-20=24*45
+			   TIM5CH1_CAPTURE_STA|=0X10;
+//		   	   printf("\r\n帧同步!");
+		   }//帧缓冲清零，准备接收数据
+		   else if(barker_counter>30){
+		   frame_window_counter=0;
+		   decoded_frame_index=0;
+
+		   TIM5->ARR=0XFFFF;//0X0031;//重新状态定时器的值
+		   TIM_ITConfig(TIM5,TIM_IT_CC2,ENABLE);//TIM_IT_CC1,接收新的帧，打开输入捕获
+		   TIM_OC2PolarityConfig(TIM5,TIM_ICPolarity_Rising); //CC1P=0 设置为上升沿捕获
+
+		   TIM5CH1_CAPTURE_STA=0;
+		   printf("\r\n这里有问题哦!");}//移位30次还没有同步，则清零寄存器（位同步所用到的变量已在位同步成功/失败退出时清零）
 		   barker_sum=0;//不满足验证，则从新开始
 	   }
 	}
@@ -386,21 +406,24 @@ void TIM5_IRQHandler(void)
 				receive_frame[frame_index]=GPIO_ReadInputDataBit(GPIOA,GPIO_Pin_1); //当前时刻就是位同步后第一个码元的最佳抽判时刻
 				PBout(6)=!PBout(6);//抽判时刻测试
 
-			//start2
+			//提取帧类型设定帧长，开始
 			if(((TIM5CH1_CAPTURE_STA&0X0100)==0)&&(frame_index>24)){//首次接收24个码元后，译码提出“帧类型”
 				TIM5CH1_CAPTURE_STA|=0X0100;
 				for(i=0;i<24;i++){
 					gray_decode_buf[i]=	receive_frame[i];//将接收缓冲区中未处理的数据放到缓冲窗中，准备格雷译码
 				}
-				decode_error_catch(gray_decode_buf,gray_decoded_buf);//格雷译码,纠错结果为gray_decoded_buf[]，前12位码元为原始数据的倒序排列
+				gray_decode_wrongbits=decode_error_catch(gray_decode_buf,gray_decoded_buf);//格雷译码,纠错结果为gray_decoded_buf[]，前12位码元为原始数据的倒序排列
 				i=gray_decoded_buf[11]*2+gray_decoded_buf[10];
+				printf("\r\n帧类型i=%d\r\n",i);
 				switch(i){
 					case 0:
-					frame_lengths=ORIGEN_FRAMESIZE;//待修改
+					frame_lengths=ORIGEN_FRAMESIZE-20;//待修改
 					break;//续传帧
 					case 1:
-					if((gray_decoded_buf[9]*2+gray_decoded_buf[8])==2){frame_lengths=LENGTHS_WAKEUPFRAME_BROADCAST;} //广播
-					else if(((gray_decoded_buf[9]*2+gray_decoded_buf[8])==1)||((gray_decoded_buf[9]*2+gray_decoded_buf[8])==3)){frame_lengths=LENGTHS_WAKEUPFRAME_UNICAST;}//单播、组播
+					tmp_buf=gray_decoded_buf[9]*2+gray_decoded_buf[8];
+					if(tmp_buf==2){frame_lengths=LENGTHS_WAKEUPFRAME_BROADCAST;} //广播
+					else if(tmp_buf==1){frame_lengths=LENGTHS_WAKEUPFRAME_UNICAST;}//单播
+					else if(tmp_buf==3){frame_lengths=LENGTHS_WAKEUPFRAME_MULTICAST;}//组播
 					break;//唤醒帧
 					case 2:
 					frame_lengths=LENGTHS_CONTROLFRAME;
@@ -409,26 +432,27 @@ void TIM5_IRQHandler(void)
 					frame_lengths=LENGTHS_SECUREFRAME;
 					break;//认证帧
 				}
+				TIM5CH1_CAPTURE_STA|=0X0800;//帧实际长度获取完毕
 			}	
-			//over2		
+			//提取帧类型设定帧长，结束	
 
 				frame_index++;
-			}else 
+			}
+			if(frame_index==frame_lengths) //比对上一个if用else做如下工作提速了一个中短周期：1ms
 			{
 				PBout(6)=0;
 				TIM5CH1_CAPTURE_STA|=0X08;//帧收完
-				bit_counter_up=0;
-				bit_counter_down=0;
-				TIM5CH1_CAPTURE_VAL=0;
 				TIM5->ARR=0XFFFF;//0X0031;//重新状态定时器的值
-				TIM_ITConfig(TIM5,TIM_IT_CC2,ENABLE);//TIM_IT_CC1,打开输入捕获，准备接收下一帧
+				TIM_ITConfig(TIM5,TIM_IT_CC2,ENABLE);//TIM_IT_CC1,接收新的帧，打开输入捕获
+				TIM_OC2PolarityConfig(TIM5,TIM_ICPolarity_Rising); //CC1P=0 设置为上升沿捕获
+				TIM_ITConfig(TIM5, TIM_IT_Update|TIM_IT_CC2, DISABLE); //关中断
 				TIM_Cmd(TIM5,DISABLE);//原始帧接收完毕，关闭定时器节约资源，等待解帧处理，处理完才使能接受下一帧
+				
+				printf("\r\n广播类型G=%d\r\n",tmp_buf);
+				printf("\r\n比特收完!\r\n");
 			}
 		}
 	}
-
-
-
 
     TIM_ClearITPendingBit(TIM5, TIM_IT_CC2|TIM_IT_Update); //TIM_IT_CC1,清除中断标志位	  
 }
