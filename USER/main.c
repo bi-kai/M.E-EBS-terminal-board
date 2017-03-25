@@ -15,11 +15,14 @@ extern u16	TIM5CH1_DOWN_CAPTURE_VAL;	//输入上升沿时间捕获值
 extern u16 bit_SYCN_UP[4];
 extern u16 bit_SYCN_DOWN[4];
 
-extern u8 receive_frame[100];
-	
+extern u8 receive_frame[max_framesize];//接收帧的缓冲区
+extern u16 frame_index;//数据帧中，比特位采样结果存储的索引值
+extern signed char barker_sum;
+extern u8 buf_barker[12];	
  int main(void)
  {	
-    u8 index=0;
+ 	u16 index=0;
+    u8 rate=0,inp=0;
 	float sample_rate=0;	
 	delay_init();	    	 //延时函数初始化	  
 	NVIC_Configuration(); 	 //设置NVIC中断分组2:2位抢占优先级，2位响应优先级
@@ -55,11 +58,15 @@ extern u8 receive_frame[100];
 //	}
 
 //	while(!(TIM5CH1_CAPTURE_STA&0X08));
-
-
-	if(TIM5CH1_CAPTURE_STA&0X80)
+//	if(inp==0)
+//	{
+//		inp=1;
+//		rate=-50;
+//		printf("fu:%d:\r\n",rate);
+//	}
+	if((TIM5CH1_CAPTURE_STA&0X80)&&(TIM5CH1_CAPTURE_STA&0X08)&&(inp==0))
 	{
-		
+		inp=1;
 
 	   for(index=0;index<4;index++)
 	   {
@@ -70,16 +77,29 @@ extern u8 receive_frame[100];
 	   		printf("%d down %d\r\n",index,bit_SYCN_DOWN[index]);
 	   }
 
-	   sample_rate=(float)(bit_SYCN_UP[0]+bit_SYCN_UP[1]+bit_SYCN_UP[2]+bit_SYCN_UP[3]+bit_SYCN_DOWN[0]+bit_SYCN_DOWN[1]+bit_SYCN_DOWN[2])/7;
+	   sample_rate=(float)(bit_SYCN_UP[0]+bit_SYCN_UP[1]+bit_SYCN_UP[2]+bit_SYCN_UP[3]+bit_SYCN_DOWN[0]+bit_SYCN_DOWN[1]+bit_SYCN_DOWN[2]+bit_SYCN_DOWN[3])/8;
 	   printf("sample rate:%f,%d bit SYNC!\r\n",sample_rate,TIM5CH1_CAPTURE_STA);
+	   rate=sample_rate;
+	   if((sample_rate-rate)>=0.5){rate++;}
+	   
+	   printf("rate:%d;barker_sum:%d\r\n",rate,barker_sum);
 	   sample_rate=0;
-		if(TIM5CH1_CAPTURE_STA&0X08)
-		{
-	   		TIM5CH1_CAPTURE_STA=0;
-		}
+
+	  // 		TIM5CH1_CAPTURE_STA=0;
+	  printf("frame_index:%d \r\n",frame_index);
+
+	  for(index=0;index<11;index++)
+	  {
+	 	 printf("%d",buf_barker[index]);
+	  }
+	 printf("\r\n");
+	 for(index=0;index<frame_index;index++)
+	 {
+	 	 printf("%d",receive_frame[index]);
+	 }
 	}
 	
-	
+
 	}//end of while
  }
 
