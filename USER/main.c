@@ -50,6 +50,8 @@ int main(void)
 
 	u8 index_frame_send=0;//串口回复信息帧下标
 	u8 frame_send_buf[100]={0};//串口回传缓冲区
+
+	u8 xor_sum=0;//异或校验和
 		
 	delay_init();	    	 //延时函数初始化	  
 	NVIC_Configuration(); 	 //设置NVIC中断分组2:2位抢占优先级，2位响应优先级
@@ -153,7 +155,9 @@ int main(void)
 			len=USART2_RX_STA&0x3fff;//得到此次接收到的数据长度
 
 			if((USART2_RX_BUF[0]=='$')&&(len>0)){
-				if(USART2_RX_BUF[len-1]==XOR(USART2_RX_BUF,len-1)){
+				xor_sum=XOR(USART2_RX_BUF,len-1);
+				if((xor_sum=='$')||(xor_sum==0x0d)){xor_sum++;}
+				if(USART2_RX_BUF[len-1]==xor_sum){
  					/*******************************************安全芯片确认帧******************************************************************/
 					if((USART2_RX_BUF[1]=='e')&&(USART2_RX_BUF[2]=='c')&&(USART2_RX_BUF[3]=='c')&&(USART2_RX_BUF[4]=='_')&&(USART2_RX_BUF[5]=='_')){//连接帧
 						LED0=1;//关闭警示灯
@@ -164,19 +168,25 @@ int main(void)
 							index_frame_send=0;
 							frame_send_buf[index_frame_send]='$';
 							index_frame_send++;
-							frame_send_buf[index_frame_send]='f';
+							frame_send_buf[index_frame_send]='s';
 							index_frame_send++;
-							frame_send_buf[index_frame_send]='r';
+							frame_send_buf[index_frame_send]='t';
 							index_frame_send++;
-							frame_send_buf[index_frame_send]='e';
+							frame_send_buf[index_frame_send]='m';
 							index_frame_send++;
 							frame_send_buf[index_frame_send]='_';
 							index_frame_send++;
-							frame_send_buf[index_frame_send]=2;//2：本帧是通知MSP430非对称认证是否通过的帧
+							frame_send_buf[index_frame_send]=2;//2：本帧是通知MSP430非对称认证是否通过的帧;1:更改通信频点帧;
 							index_frame_send++;
 							frame_send_buf[index_frame_send]=1;//1：表示通过
 							index_frame_send++;
-							frame_send_buf[index_frame_send]=XOR(frame_send_buf,index_frame_send);
+							xor_sum=XOR(frame_send_buf,index_frame_send);
+							if((xor_sum==0x0D)||(xor_sum=='$'))xor_sum++;
+							frame_send_buf[index_frame_send]=xor_sum;
+							index_frame_send++;
+							frame_send_buf[index_frame_send]='\r';
+							index_frame_send++;
+							frame_send_buf[index_frame_send]='\n';
 							index_frame_send++;
 						
 							for(t=0;t<index_frame_send;t++)
@@ -186,6 +196,35 @@ int main(void)
 							}
 						}else{//ecc未通过
 							printf("ecc wrong!");
+							index_frame_send=0;
+							frame_send_buf[index_frame_send]='$';
+							index_frame_send++;
+							frame_send_buf[index_frame_send]='s';
+							index_frame_send++;
+							frame_send_buf[index_frame_send]='t';
+							index_frame_send++;
+							frame_send_buf[index_frame_send]='m';
+							index_frame_send++;
+							frame_send_buf[index_frame_send]='_';
+							index_frame_send++;
+							frame_send_buf[index_frame_send]=2;//2：本帧是通知MSP430非对称认证是否通过的帧;1:更改通信频点帧;
+							index_frame_send++;
+							frame_send_buf[index_frame_send]=0;//1：表示通过,0:未通过;
+							index_frame_send++;
+							xor_sum=XOR(frame_send_buf,index_frame_send);
+							if((xor_sum==0x0D)||(xor_sum=='$'))xor_sum++;
+							frame_send_buf[index_frame_send]=xor_sum;
+							index_frame_send++;
+							frame_send_buf[index_frame_send]='\r';
+							index_frame_send++;
+							frame_send_buf[index_frame_send]='\n';
+							index_frame_send++;
+						
+							for(t=0;t<index_frame_send;t++)
+							{
+								USART_SendData(USART1, frame_send_buf[t]);//向串口发送数据
+								while(USART_GetFlagStatus(USART1,USART_FLAG_TC)!=SET);//等待发送结束
+							}
 						}
 						USART2_RX_STA=0;//处理完毕，允许接收下一帧
 						USART_ITConfig(USART2, USART_IT_RXNE, ENABLE);//打开中断
@@ -222,9 +261,14 @@ void frame_wakeup_broadcast(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAM
 	u8 aes_char[4][4]={0};//AES	128bits转换位4*4的u8矩阵
 	float fre_point=0;//打印测试,数据帧中提取出的通信频点
 	u8 communication_point=0;//数据帧中提取出的通信频点
-
+	u8 xorsum=0;
 	u8 index_frame_send=0;//串口回复信息帧下标
 	u8 frame_send_buf[100]={0};//串口回传缓冲区
+
+	u32 frame_counters=0;//唤醒帧中bits转帧计数器
+	u32 source_addres=0;//唤醒帧中bits转源地址
+	u32 target_address_start=0;//唤醒帧中bits转目标起始地址
+	u32 target_address_end=0;//唤醒帧中bits转目标终止地址
 	/**************************************AES校验**************************************************************/
 	for(i=0;i<128;i++){
 	   if(i<(decoded_frame_index-36)){//把格雷译码后的数据中后36位前的内容放到aes_bits[]中
@@ -266,19 +310,25 @@ void frame_wakeup_broadcast(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAM
 		index_frame_send=0;
 		frame_send_buf[index_frame_send]='$';
 		index_frame_send++;
-		frame_send_buf[index_frame_send]='f';
+		frame_send_buf[index_frame_send]='s';
 		index_frame_send++;
-		frame_send_buf[index_frame_send]='r';
+		frame_send_buf[index_frame_send]='t';
 		index_frame_send++;
-		frame_send_buf[index_frame_send]='e';
+		frame_send_buf[index_frame_send]='m';
 		index_frame_send++;
 		frame_send_buf[index_frame_send]='_';
 		index_frame_send++;
-		frame_send_buf[index_frame_send]=1;//表示本帧是通知MSP430频点的问题
+		frame_send_buf[index_frame_send]=1;//表示本帧是通知MSP430频点的问题,因为STM32不知道通信频点是多少
 		index_frame_send++;
 		frame_send_buf[index_frame_send]=communication_point;
 		index_frame_send++;
-		frame_send_buf[index_frame_send]=XOR(frame_send_buf,index_frame_send);
+		xorsum=XOR(frame_send_buf,index_frame_send);
+		if((xorsum=='$')||(xorsum==0x0d))xorsum++;
+		frame_send_buf[index_frame_send]=xorsum;
+		index_frame_send++;
+		frame_send_buf[index_frame_send]='\r';
+		index_frame_send++;
+		frame_send_buf[index_frame_send]='\n';
 		index_frame_send++;
 	
 		for(t=0;t<index_frame_send;t++)
@@ -289,6 +339,13 @@ void frame_wakeup_broadcast(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAM
 
 		fre_point=76+communication_point/10;
 		printf("comunation point:%fMHz\r\n",fre_point);//打印通信频点的值
+
+		for(index=0;index<32;index++){
+			frame_counters|=decoded_frame[decoded_frame_index-72+index]<<(31-index);
+		}
+		printf("frame_counter:%d\r\n",frame_counters);//打印通信频点的值
+
+
 
 		if((decoded_frame[2]*2+decoded_frame[3])==2){//广播唤醒帧处理
 			printf("broadcast wakeup AES SUCCESS\r\n\r\n");
@@ -353,6 +410,12 @@ void frame_control(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAMESIZE]){/
 			index|=decoded_frame[i]<<(11-i);
 		}
 		printf("\r\nwaring index=%d\r\n",index);
+
+		for(index=0;index<32;index++){
+			frame_counters|=decoded_frame[decoded_frame_index-72+index]<<(31-index);
+		}
+		printf("frame_counter:%d\r\n",frame_counters);//打印通信频点的值
+
 		switch(index){
 			case 0:
 
@@ -395,6 +458,7 @@ void frame_secure(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAMESIZE]){//
    u16 t=0;
    u8 index_frame_safe=0;//终端向安全芯片传输的数据帧
    u8 frame_safe[130]={0};//数据帧buffer
+   u8 xorsum=0;//函数中使用的异或检验和值
    LED0=0;//打开警示灯
 	frame_safe[index_frame_safe]='$';
 	index_frame_safe++;
@@ -409,6 +473,7 @@ void frame_secure(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAMESIZE]){//
 	if (index_safe_times<200)
 	{
 		index_safe_times++;
+		if((index_safe_times=='$')||(index_safe_times==0x0d))index_safe_times++;
 	} 
 	else
 	{
@@ -431,17 +496,22 @@ void frame_secure(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAMESIZE]){//
 //		frame_safe[index_frame_safe]=fm_frame_byte[t]+0x30;
 //		index_frame_safe++;
 //	}
-	frame_safe[index_frame_safe]=XOR(frame_safe,index_frame_safe);
+	xorsum=XOR(frame_safe,index_frame_safe);
+	if((xorsum=='$')||(xorsum==0x0d))xorsum++;
+	frame_safe[index_frame_safe]=xorsum;
 	index_frame_safe++;
 	frame_safe[index_frame_safe]='\r';
 	index_frame_safe++;
 	frame_safe[index_frame_safe]='\n';
 	index_frame_safe++;
 	USART_ITConfig(USART2, USART_IT_RXNE, ENABLE);//暂时打开，只为调试
-	printf("\r\n认证帧：\r\n");
-	for(t=0;t<index_frame_safe;t++)//认证帧通过串口2发送给安全芯片
+	printf("\r\nsecure frame:\r\n");
+	for(t=0;t<(index_frame_safe-2);t++)//认证帧内容通过串1打印,排除掉\r\n
 	{
 		printf("%x ",frame_safe[t]);
+	}
+	for(t=0;t<index_frame_safe;t++)//认证帧通过串口2发送给安全芯片
+	{
 		USART_SendData(USART2, frame_safe[t]);//向串口发送数据
 		while(USART_GetFlagStatus(USART2,USART_FLAG_TC)!=SET);//等待发送结束
 	}
