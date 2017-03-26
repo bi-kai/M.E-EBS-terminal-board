@@ -54,7 +54,7 @@ void TIM3_Int_Init(u16 arr,u16 psc)
 
 extern u32 frame_counters;//唤醒帧中bits转帧计数器
 u16 flash_framecounter_nums=0;//每隔5秒，计数到300，存储一次帧计数器的值
-
+extern u8 flag_main_busy;//主函数正在忙禁止TIM3flash中断标志位
 void TIM3_IRQHandler(void)   //TIM3中断
 {
 	u8 flash_temp[4]={0};
@@ -63,18 +63,20 @@ void TIM3_IRQHandler(void)   //TIM3中断
 		{
 			TIM_ClearITPendingBit(TIM3, TIM_IT_Update);  //清除TIMx的中断待处理位:TIM 中断源 
 			LED1=!LED1;
-			if(flash_framecounter_nums<20){
+			if(flash_framecounter_nums<10){
 				flash_framecounter_nums++;
-			}else{ //开始存储到flash中
+			}else if(flag_main_busy==0){ //开始存储到flash中
 				STMFLASH_Read(0X08070000,(u16*)flash_temp,4);
 				framecounter=flash_temp[0]*256*256*256+flash_temp[1]*256*256+flash_temp[2]*256+flash_temp[3];//启动时读入flash中的帧计数器值
 				if(framecounter<frame_counters){
+					TIM_Cmd(TIM5,DISABLE ); 	//失能定时器5
 				 	flash_temp[0]=frame_counters/(256*256*256);
 					flash_temp[1]=frame_counters/(256*256);
 					flash_temp[2]=frame_counters/256;
 					flash_temp[3]=frame_counters%256;
 					STMFLASH_Write(0X08070000,(u16*)flash_temp,4);//把帧计数值分四个字节保存到flash中
 					flash_framecounter_nums=0;
+					TIM_Cmd(TIM5,ENABLE ); 	//使能定时器5
 				}
 				
 			}
@@ -220,6 +222,7 @@ void TIM5_IRQHandler(void)
 		{	 
 			if(timeout_flag==0){   //update时间内值保持为零，说明这段时间内没有码元，故不是帧的中间部位，寄存器清零，等待帧接收
 				TIM5CH1_CAPTURE_STA=0;
+				TIM_Cmd(TIM3, ENABLE);
 				TIM5CH1_CAPTURE_VAL=0; 
 				TIM_OC2PolarityConfig(TIM5,TIM_ICPolarity_Rising); //CC1P=0 设置为上升沿捕获
 				bit_counter_up=0;//标记高电平数组为空
@@ -292,6 +295,7 @@ void TIM5_IRQHandler(void)
 				else //清零，等待重新接收
 				{
 					TIM5CH1_CAPTURE_STA=0;//非法0码脉冲，关闭脉冲计数
+					TIM_Cmd(TIM3, ENABLE);
 					TIM5CH1_CAPTURE_VAL=0;
 					bit_counter_up=0;//标记高电平数组为空
 					bit_counter_down=0;							
@@ -338,6 +342,7 @@ void TIM5_IRQHandler(void)
 				else//清零，第一个上升沿到来或同步失败
 				{
 					TIM5CH1_CAPTURE_STA=0;	//清空
+					TIM_Cmd(TIM3, ENABLE);
 					bit_counter_down=0;//标记低电平数组为空
 					bit_counter_up=0;
 				}
@@ -412,6 +417,7 @@ void TIM5_IRQHandler(void)
 			   TIM_OC2PolarityConfig(TIM5,TIM_ICPolarity_Rising); //CC1P=0 设置为上升沿捕获
 	
 			   TIM5CH1_CAPTURE_STA=0;
+			   TIM_Cmd(TIM3, ENABLE);
 			   printf("\r\n这里有问题哦!");
 		   }//移位30次还没有同步，则清零寄存器（位同步所用到的变量已在位同步成功/失败退出时清零）
 		   barker_sum=0;//不满足验证，则从新开始

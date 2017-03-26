@@ -50,6 +50,7 @@ u32 source_addres=0;//唤醒帧中bits转源地址
 u32 target_address_start=0;//唤醒帧中bits转目标起始地址
 u32 target_address_end=0;//唤醒帧中bits转目标终止地址
 
+u8 flag_main_busy=0;//主函数正在忙禁止TIM3flash中断标志位
 int main(void)
 {	
  	u16 index=0;
@@ -119,13 +120,16 @@ int main(void)
 		if(test<65533)test++;
 		else if(test>=65533){test1++;test=0;}
 		if(test1==90){
-		printf("\r\nmain运行中!TIM5CH1_CAPTURE_STA=%d,frame_window_counter=%d,decoded_frame_index=%d\r\n",TIM5CH1_CAPTURE_STA,frame_window_counter,decoded_frame_index);
-		test1=0;
+			TIM_Cmd(TIM3, ENABLE);
+			printf("\r\nmain运行中!TIM5CH1_CAPTURE_STA=%d,frame_window_counter=%d,decoded_frame_index=%d\r\n",TIM5CH1_CAPTURE_STA,frame_window_counter,decoded_frame_index);
+			test1=0;
+		
 		}
 
 
 		if((TIM5CH1_CAPTURE_STA&0X0200)&&(TIM5CH1_CAPTURE_STA&0X08))//格雷码解码完毕
 		{
+			flag_main_busy=1;//准备串口发送禁止TIM3中断
 /**************************************打印测试数据*********************************************************/			
 		   for(index=0;index<BIT_SYNC_GROUPS;index++)
 		   {
@@ -177,14 +181,15 @@ int main(void)
 		   TIM5_Cap_Init(0XFFFF,72-1);
 		   TIM_Cmd(TIM5,ENABLE);
 		   
-		   
+		flag_main_busy=0;   
 		}//end of 格雷码译码后的帧处理
 
 
 
 /******************************************************************串口2接收数据************************************************************************/
 		if(USART2_RX_STA&0x8000)
-		{			   
+		{
+			flag_main_busy=1;//主函数正在忙禁止TIM3flash中断标志位			   
 			len=USART2_RX_STA&0x3fff;//得到此次接收到的数据长度
 
 			if((USART2_RX_BUF[0]=='$')&&(len>0)){
@@ -273,7 +278,7 @@ int main(void)
 				 }else{USART2_RX_STA=0;USART_ITConfig(USART2, USART_IT_RXNE, ENABLE);}//end of XOR，XOR出错请求重传
 				 }else {USART2_RX_STA=0;USART_ITConfig(USART2, USART_IT_RXNE, ENABLE);}//end of check '$'
 
-
+		flag_main_busy=0;
 		}else {USART_ITConfig(USART2, USART_IT_RXNE, ENABLE);}//此处等待串口2回传数据，故usart2_works不能清零，但要添加对其为0的条件判断
 
 
