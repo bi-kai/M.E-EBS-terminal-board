@@ -71,12 +71,12 @@ int main(void)
 			TIM5CH1_CAPTURE_STA|=0X0200;
 			frame_window_counter=0;
 		}
-printf("\r\n格雷：TIM5CH1_CAPTURE_STA=%d,frame_window_counter=%d,decoded_frame_index=%d,frame_lengths=%d\r\n",TIM5CH1_CAPTURE_STA,frame_window_counter,decoded_frame_index,frame_lengths);
+//printf("\r\n格雷：TIM5CH1_CAPTURE_STA=%d,frame_window_counter=%d,decoded_frame_index=%d,frame_lengths=%d\r\n",TIM5CH1_CAPTURE_STA,frame_window_counter,decoded_frame_index,frame_lengths);
 		}
 
 		if(test<65533)test++;
 		else if(test>=65533){test1++;test=0;}
-		if(test1==50){
+		if(test1==90){
 		printf("\r\nmain运行中!TIM5CH1_CAPTURE_STA=%d,frame_window_counter=%d,decoded_frame_index=%d\r\n",TIM5CH1_CAPTURE_STA,frame_window_counter,decoded_frame_index);
 		test1=0;
 		}

@@ -349,7 +349,7 @@ void TIM5_IRQHandler(void)
 					bit_counter_down=0;
 					bit_counter_up=0;
 					barker_counter=0;//巴克码比较次数的清零
-					printf("\r\n位同步!"); 					
+				//	printf("\r\n位同步!"); 					
 				}
 				if((bit_counter_down>=BIT_SYNC_GROUPS)||(bit_counter_up>=BIT_SYNC_GROUPS)){bit_counter_down=0;bit_counter_up=0;}		   //3
 				TIM5CH1_CAPTURE_VAL=0;	
