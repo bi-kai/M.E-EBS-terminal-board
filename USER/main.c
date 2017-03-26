@@ -9,7 +9,13 @@
 #include "encrypt.h"//AES加密
 #include "stmflash.h"
 
-#define FLASH_SAVE_ADDR  0X08070000 //设置FLASH 保存地址(必须为偶数)
+#define RADIO_ID_START 34095233
+#define RADIO_ID_END 1073741823
+#define AREA_TERMINAL_ID_START 4353
+#define AREA_TERMINAL_ID_END 262143
+
+
+#define FLASH_SAVE_ADDR  0x08008000 //0X08070000 0X08000000//设置FLASH 保存地址(必须为偶数)
 u8 TEXT_Buffer[4]={0};
 #define SIZE sizeof(TEXT_Buffer)//数组长度
 u8 flash_temp[4]={0};
@@ -42,15 +48,26 @@ void frame_wakeup_broadcast(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAM
 void frame_control(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAMESIZE]);//控制帧处理函数
 void frame_secure(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAMESIZE]);//认证帧处理函数
 unsigned char XOR(unsigned char *BUFF, u16 len);
+void DKA065(int index);
+u16 alarm_frame_index=0;//报警索引的全局变量，用于timer.c中
+
+void communication_right(void);//唤醒成功
+void communication_wrong(void);//广播结束
 
 u8 ecc_right=1;//ecc通过标志位。>1：未通过；0：通过；
 
 u32 frame_counters=0;//唤醒帧中bits转帧计数器
 u32 source_addres=0;//唤醒帧中bits转源地址
+const u32 my_broad_ID=RADIO_ID_START;//本社区电台ID。34095233~1073741823
 u32 target_address_start=0;//唤醒帧中bits转目标起始地址
 u32 target_address_end=0;//唤醒帧中bits转目标终止地址
-
+const u32 my_ID=AREA_TERMINAL_ID_START;//终端ＩＤ编号。终端ＩＤ段起始ＩＤ
+													   
 u8 flag_main_busy=0;//主函数正在忙禁止TIM3flash中断标志位
+u8 sage_confirmd=0;//安全认证是否收到。0：未收到；1：已收到；
+
+//终端ＩＤ
+//double terminal_ID=my_broad_ID<<18+my_ID;
 int main(void)
 {	
  	u16 index=0;
@@ -76,9 +93,9 @@ int main(void)
  	LED_Init();			     //LED端口初始化	
 //	WKUP_Init(); //待机唤醒初始化
 	LED1=0;
- 	TIM5_Cap_Init(0XFFFF,72-1);	//以1Mhz的频率计数,0xFFFF为65.535ms
-	TIM3_Int_Init(9999,7199);//5hz的计数频率 
-
+ 	TIM2_Cap_Init(0XFFFF,72-1);	//以1Mhz的频率计数,0xFFFF为65.535ms
+	TIM3_Int_Init(9999,7199);//定期存储帧计数值；安全认证定期查询，1s中断一次，10s统计一次
+	TIM4_Int_Init(7999,7199); //DKA占用喇叭的时间
 	///////////////////读取FLASH中状态标志位，判断是否首次初始化////////////////////////////////
 	STMFLASH_Read(FLASH_STATE_ADDR,(u16*)STATE_temp,STATE_SIZE);
 	if(STATE_temp[0]!=0x33){//首次初始化
@@ -178,8 +195,8 @@ int main(void)
 		   TIM5CH1_CAPTURE_STA=0;//帧处理完毕的清零
 		   decoded_frame_index=0; 
 		   frame_window_counter=0;
-		   TIM5_Cap_Init(0XFFFF,72-1);
-		   TIM_Cmd(TIM5,ENABLE);
+		   TIM2_Cap_Init(0XFFFF,72-1);
+		   TIM_Cmd(TIM2,ENABLE);
 		   
 		flag_main_busy=0;   
 		}//end of 格雷码译码后的帧处理
@@ -202,7 +219,7 @@ int main(void)
 						ecc_right=USART2_RX_BUF[9];//返回是否通过校验
 						if(ecc_right==0){//ecc通过
 							printf("ecc access!");
-
+							sage_confirmd=1;//认证通过
 							index_frame_send=0;
 							frame_send_buf[index_frame_send]='$';
 							index_frame_send++;
@@ -234,6 +251,7 @@ int main(void)
 							}
 						}else{//ecc未通过
 							printf("ecc wrong!");
+							sage_confirmd=0;//认证失败
 							index_frame_send=0;
 							frame_send_buf[index_frame_send]='$';
 							index_frame_send++;
@@ -333,13 +351,15 @@ void frame_wakeup_broadcast(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAM
 //			 TIM5CH1_CAPTURE_STA=0;//各关键寄存器清零，等待接收帧
 //			 decoded_frame_index=0; 
 //			 frame_window_counter=0;
-//			 TIM_Cmd(TIM5,ENABLE);
+//			 TIM_Cmd(TIM2,ENABLE);
 			 printf("\r\nWakeup AES wrong!!\r\n"); 
+			 SAFE_CHIP=0;//关闭安全芯片
 			 return;//检测到不同，立刻终止验证
 		  }
 		  i++;
 	}
 	if(i==36){TIM5CH1_CAPTURE_STA|=0X0400;}//AES验证通过
+	SAFE_CHIP=1;//打开安全芯片
 /*************************************目标地址提取************************************************************/
 	if(TIM5CH1_CAPTURE_STA&0X0400){//AES检测通过
 		communication_point=decoded_frame[4]*128+decoded_frame[5]*64+decoded_frame[6]*32+decoded_frame[7]*16+decoded_frame[8]*8+decoded_frame[9]*4+decoded_frame[10]*2+decoded_frame[11];
@@ -392,18 +412,22 @@ void frame_wakeup_broadcast(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAM
 		for(index=0;index<30;index++){
 			source_addres|=decoded_frame[12+index]<<(29-index);//源地址在译码帧中从第12bits开始，共30bits
 		}
+
+		if(source_addres==my_broad_ID){//判断电台ID是否合法
+			printf("redio ID correct.\r\n");
+		//	communication_right();
+		}else{
+			printf("redio ID wrong.\r\n");
+			communication_wrong();
+		}
 		printf("source_addres:%d\r\n",source_addres);//打印电台ID
 
 
-
-
-
-
-
-
+	//	communication_right(); //唤醒成功
 
 		if((decoded_frame[2]*2+decoded_frame[3])==2){//广播唤醒帧处理
-			printf("broadcast wakeup AES SUCCESS\r\n\r\n");
+			communication_right();
+			printf("terminal ID correct. broadcast wakeup AES SUCCESS\r\n\r\n");
 		} 
 		else if((decoded_frame[2]*2+decoded_frame[3])==1){//单播唤醒帧处理
 			printf("unicast wakeup AES SUCCESS\r\n\r\n");
@@ -411,6 +435,13 @@ void frame_wakeup_broadcast(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAM
 			target_address_start=0;
 			for(index=0;index<24;index++){
 				target_address_start|=decoded_frame[48+index]<<(23-index);//单播地址在译码帧中从第48bits开始，共24bits
+			}
+			if(target_address_start==my_ID){
+				communication_right();
+				printf("redio ID correct.\r\n");
+			}else{
+				printf("redio ID wrong.\r\n");
+				communication_wrong();
 			}
 			printf("target_address_start:%d\r\n",target_address_start);//打印单播地址
 
@@ -427,6 +458,15 @@ void frame_wakeup_broadcast(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAM
 			for(index=0;index<24;index++){
 				target_address_end|=decoded_frame[72+index]<<(23-index);//组播终止地址在译码帧中从第72bits开始，共24bits
 			}
+
+			if((my_ID>=target_address_start)&&(my_ID<=target_address_end)){				
+				communication_right();
+				printf("redio ID correct.\r\n");
+			}else{
+				printf("redio ID wrong.\r\n");
+				communication_wrong();
+			}
+
 			printf("target_address_end:%d\r\n",target_address_end);//打印单播地址
 
 		}else printf("\r\nfinal wrong!!\r\n");   
@@ -440,6 +480,8 @@ void frame_wakeup_broadcast(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAM
 //	
 //}
 
+//6 extern u8 alarm_over;//10次报警是否播放完毕。0：完毕；1：未完；
+extern u8 alarm_times;//报警播放次数
 void frame_control(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAMESIZE]){//控制帧处理函数
 	u8 i=0;
 	u16 index=0;
@@ -472,6 +514,7 @@ void frame_control(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAMESIZE]){/
 	for(index=(decoded_frame_index-36);index<decoded_frame_index;index++){//本地计算的AES与传送的AES进行比对
 	    if(decoded_frame[index]!=aes_bits[i]){//如果有某一位不同
 			 printf("\r\nControl AES wrong!!\r\n"); 
+			 communication_wrong();
 			 return;//检测到不同，立刻终止验证
 		  }
 		  i++;
@@ -484,6 +527,26 @@ void frame_control(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAMESIZE]){/
 			index|=decoded_frame[i]<<(11-i);
 		}
 		printf("\r\nwaring index=%d\r\n",index);
+		communication_right();//也算唤醒成功
+		if(index<99){
+//4			if(alarm_over==0){ //防止后续报警帧的影响。收到一次，就不处理后续的了
+//3				alarm_over=1;
+				alarm_times=0;//7
+				if(alarm_frame_index!=index){//同一批次重复发送的报警帧，第一个以后的被忽略
+					alarm_frame_index=index;
+					DKA_SWITCH=1;//开关选择到DKA上
+					DKA065(index);//发报警音频
+					delay_ms(1300);
+					TIM4_Int_Init(7999,7199); //DKA占用喇叭的时间
+					TIM_Cmd(TIM4, ENABLE);  //打开TIMx //给DKA芯片流出播放时间
+				}
+//5			}
+		}
+		else if (index==100){
+			communication_wrong();//通信结束
+			alarm_frame_index=0;	
+		}
+		
 
 		frame_nums=0;
 		for(index=0;index<32;index++){
@@ -497,42 +560,42 @@ void frame_control(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAMESIZE]){/
 		}else{
 			frame_counters=frame_nums;
 		}
-
-
-
-		switch(index){
-			case 0:
-
-			break;
-			case 1:
-
-			break;
-			case 2:
-
-			break;
-			case 3:
-
-			break;
-			case 4:
-
-			break;
-			case 5:
-
-			break;
-			case 6:
-
-			break;
-			case 7:
-
-			break;
-			case 8:
-
-			break;
-			case 9:
-
-			break;
 		
-		}
+
+
+//		switch(index){
+//			case 0:
+//
+//			break;
+//			case 1:
+//
+//			break;
+//			case 2:
+//
+//			break;
+//			case 3:
+//
+//			break;
+//			case 4:
+//
+//			break;
+//			case 5:
+//
+//			break;
+//			case 6:
+//
+//			break;
+//			case 7:
+//
+//			break;
+//			case 8:
+//
+//			break;
+//			case 9:
+//
+//			break;
+//		
+//		}
 		
 	} 
 }
@@ -572,7 +635,7 @@ void frame_secure(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAMESIZE]){//
 
 	for (t=0;t<decoded_frame_index/4;t++)
 	{
-		frame_safe[index_frame_safe]=decoded_frame[t*4]*8+decoded_frame[t*4+1]*4+decoded_frame[t*4+2]*2+decoded_frame[t*4+3]*1+0x30;//ASCII 0码对应十进制是0x30
+		frame_safe[index_frame_safe]=decoded_frame[t*4]*8+decoded_frame[t*4+1]*4+decoded_frame[t*4+2]*2+decoded_frame[t*4+3]+0x30;//ASCII 0码对应十进制是0x30
 		index_frame_safe++;
 	}
 
@@ -614,5 +677,30 @@ unsigned char XOR(unsigned char *BUFF, u16 len)
 	return result;
 }
 
+void DKA065(int index){
+	int i=0;
+	DKA_RTS=1;
+	DKA_DATA=0; /* 先复位*/
+	delay_us(40); /* 100us */
+	DKA_RTS=0;
+	delay_ms(5); /* 5ms 以上*/
+	for(i=0;i<index;i++)
+	{
+		DKA_DATA=1; //数据拉高
+		delay_us(40); //等待100us
+		DKA_DATA=0; //数据拉低
+		delay_us(40); //等待100us，完成一个脉冲发送
+	}
+}
 
+
+void communication_right(void){
+	GPIO_SetBits(GPIOB,GPIO_Pin_10);//1	通信成功，通知430
+	GPIO_ResetBits(GPIOB,GPIO_Pin_11);//0
+}
+
+void communication_wrong(void){
+	GPIO_ResetBits(GPIOB,GPIO_Pin_10);//0	通信结束，通知430
+	GPIO_SetBits(GPIOB,GPIO_Pin_11);//1
+}
 

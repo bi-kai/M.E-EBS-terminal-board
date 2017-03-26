@@ -55,10 +55,16 @@ void TIM3_Int_Init(u16 arr,u16 psc)
 extern u32 frame_counters;//唤醒帧中bits转帧计数器
 u16 flash_framecounter_nums=0;//每隔5秒，计数到300，存储一次帧计数器的值
 extern u8 flag_main_busy;//主函数正在忙禁止TIM3flash中断标志位
+
+extern u8 sage_confirmd;//安全认证是否收到。0：未收到；1：已收到；
+
 void TIM3_IRQHandler(void)   //TIM3中断
 {
 	u8 flash_temp[4]={0};
 	u32 framecounter=0;
+
+	static u8 count_safe=0;//计数值
+
 	if (TIM_GetITStatus(TIM3, TIM_IT_Update) != RESET) //检查指定的TIM中断发生与否:TIM 中断源 
 		{
 			TIM_ClearITPendingBit(TIM3, TIM_IT_Update);  //清除TIMx的中断待处理位:TIM 中断源 
@@ -66,21 +72,34 @@ void TIM3_IRQHandler(void)   //TIM3中断
 			if(flash_framecounter_nums<FLASH_CHECK_TIMES){
 				flash_framecounter_nums++;
 			}else if((flash_framecounter_nums>FLASH_CHECK_TIMES)&&(flag_main_busy==0)){ //开始存储到flash中
-				STMFLASH_Read(0X08070000,(u16*)flash_temp,4);
+				STMFLASH_Read(0x08008000,(u16*)flash_temp,4);
 				framecounter=flash_temp[0]*256*256*256+flash_temp[1]*256*256+flash_temp[2]*256+flash_temp[3];//启动时读入flash中的帧计数器值
 				if(framecounter<frame_counters){
-					TIM_Cmd(TIM5,DISABLE ); 	//失能定时器5
+					TIM_Cmd(TIM2,DISABLE ); 	//失能定时器2
 				 	flash_temp[0]=frame_counters/(256*256*256);
 					flash_temp[1]=frame_counters/(256*256);
 					flash_temp[2]=frame_counters/256;
 					flash_temp[3]=frame_counters%256;
-					STMFLASH_Write(0X08070000,(u16*)flash_temp,4);//把帧计数值分四个字节保存到flash中
+					STMFLASH_Write(0x08008000,(u16*)flash_temp,4);//把帧计数值分四个字节保存到flash中
 					flash_framecounter_nums=0;
-					TIM_Cmd(TIM5,ENABLE ); 	//使能定时器5
+					TIM_Cmd(TIM2,ENABLE ); 	//使能定时器2
 				}
 				
 			}
-			
+		  /***********************对认证帧的统计，10s一次****************************/
+			if(count_safe==10){//1s中断一次，计数10次，处理一次
+				count_safe=0;
+				if(sage_confirmd==1){
+					communication_right();
+				}
+				else{
+//					communication_wrong();
+				}
+				sage_confirmd=0;
+				
+			}else{
+				count_safe++;	
+			}
 		}
 }
 
@@ -132,17 +151,17 @@ void TIM3_PWM_Init(u16 arr,u16 psc)
 
 }
 
-//定时器5通道1输入捕获配置
+//定时器2通道1输入捕获配置
 
 TIM_ICInitTypeDef  TIM5_ICInitStructure;
 
-void TIM5_Cap_Init(u16 arr,u16 psc)
+void TIM2_Cap_Init(u16 arr,u16 psc)
 {	 
 	GPIO_InitTypeDef GPIO_InitStructure;
 	TIM_TimeBaseInitTypeDef  TIM_TimeBaseStructure;
    	NVIC_InitTypeDef NVIC_InitStructure;
 
-	RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM5, ENABLE);	//使能TIM5时钟
+	RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM2, ENABLE);	//使能TIM5时钟
  	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA, ENABLE);  //使能GPIOA时钟
 	
 	GPIO_InitStructure.GPIO_Pin  = GPIO_Pin_1;  //PA1 清除之前设置  
@@ -157,7 +176,7 @@ void TIM5_Cap_Init(u16 arr,u16 psc)
 	TIM_TimeBaseStructure.TIM_Prescaler =psc; 	//预分频器   
 	TIM_TimeBaseStructure.TIM_ClockDivision = TIM_CKD_DIV1; //设置时钟分割:TDTS = Tck_tim
 	TIM_TimeBaseStructure.TIM_CounterMode = TIM_CounterMode_Up;  //TIM向上计数模式
-	TIM_TimeBaseInit(TIM5, &TIM_TimeBaseStructure); //根据TIM_TimeBaseInitStruct中指定的参数初始化TIMx的时间基数单位
+	TIM_TimeBaseInit(TIM2, &TIM_TimeBaseStructure); //根据TIM_TimeBaseInitStruct中指定的参数初始化TIMx的时间基数单位
   
 	//初始化TIM5输入捕获参数
 	TIM5_ICInitStructure.TIM_Channel = TIM_Channel_2; //CC1S=01 	选择输入端 IC1映射到TI1上
@@ -165,18 +184,18 @@ void TIM5_Cap_Init(u16 arr,u16 psc)
   	TIM5_ICInitStructure.TIM_ICSelection = TIM_ICSelection_DirectTI; //映射到TI1上
   	TIM5_ICInitStructure.TIM_ICPrescaler = TIM_ICPSC_DIV1;	 //配置输入分频,不分频 
   	TIM5_ICInitStructure.TIM_ICFilter = 0x11;//IC1F=0000 配置输入滤波器 不滤波
-  	TIM_ICInit(TIM5, &TIM5_ICInitStructure);
+  	TIM_ICInit(TIM2, &TIM5_ICInitStructure);
 	
 	//中断分组初始化
-	NVIC_InitStructure.NVIC_IRQChannel = TIM5_IRQn;  //TIM3中断
+	NVIC_InitStructure.NVIC_IRQChannel = TIM2_IRQn;  //TIM3中断
 	NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 2;  //先占优先级2级
 	NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0;  //从优先级0级
 	NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE; //IRQ通道被使能
 	NVIC_Init(&NVIC_InitStructure);  //根据NVIC_InitStruct中指定的参数初始化外设NVIC寄存器 
 	
-	TIM_ITConfig(TIM5,TIM_IT_Update|TIM_IT_CC2,ENABLE);//TIM_IT_CC1,允许更新中断 ,允许CC1IE捕获中断	
+	TIM_ITConfig(TIM2,TIM_IT_Update|TIM_IT_CC2,ENABLE);//TIM_IT_CC1,允许更新中断 ,允许CC1IE捕获中断	
 	
-   	TIM_Cmd(TIM5,ENABLE ); 	//使能定时器5
+   	TIM_Cmd(TIM2,ENABLE ); 	//使能定时器5
    
 
 
@@ -200,8 +219,8 @@ extern u16 decoded_frame_index;//格雷码译码后缓冲区数组的索引值
 
 
 u8 tmp_buf=0;
-//定时器5中断服务程序	 
-void TIM5_IRQHandler(void)
+//定时器2中断服务程序	 
+void TIM2_IRQHandler(void)
 { 
    static u8 bit_counter_up=0;//位同步时，统计第n个高脉冲
    static u8 bit_counter_down=0;//位同步时，统计第n个低脉冲
@@ -218,13 +237,13 @@ void TIM5_IRQHandler(void)
 /*********************************位同步捕获*************************************/   
  	if((TIM5CH1_CAPTURE_STA&0X80)==0)//位同步捕获，还未成功捕获(优先捕获1码)	
 	{	  
-		if (TIM_GetITStatus(TIM5, TIM_IT_Update) != RESET) //65.535定时器超时，则全部清空；此外，还要考虑主函数中对阵处理的时间		 
+		if (TIM_GetITStatus(TIM2, TIM_IT_Update) != RESET) //65.535定时器超时，则全部清空；此外，还要考虑主函数中对阵处理的时间		 
 		{	 
 			if(timeout_flag==0){   //update时间内值保持为零，说明这段时间内没有码元，故不是帧的中间部位，寄存器清零，等待帧接收
 				TIM5CH1_CAPTURE_STA=0;
 				TIM_Cmd(TIM3, ENABLE);
 				TIM5CH1_CAPTURE_VAL=0; 
-				TIM_OC2PolarityConfig(TIM5,TIM_ICPolarity_Rising); //CC1P=0 设置为上升沿捕获
+				TIM_OC2PolarityConfig(TIM2,TIM_ICPolarity_Rising); //CC1P=0 设置为上升沿捕获
 				bit_counter_up=0;//标记高电平数组为空
 				bit_counter_down=0;//标记低电平数组为空
 				frame_index=0;//帧缓冲清零，等待下一帧		
@@ -235,19 +254,19 @@ void TIM5_IRQHandler(void)
 
 		 if(TIM5CH1_CAPTURE_STA==0)//控制寄存器若被清空，标志上一帧接收完毕/高电平码元超时/第一帧，开始接收新的帧
 		 {
-		 	TIM_ITConfig(TIM5,TIM_IT_CC2,ENABLE);//TIM_IT_CC1,接收新的帧，打开输入捕获
-			TIM_OC2PolarityConfig(TIM5,TIM_ICPolarity_Rising); //CC1P=0 设置为上升沿捕获 
+		 	TIM_ITConfig(TIM2,TIM_IT_CC2,ENABLE);//TIM_IT_CC1,接收新的帧，打开输入捕获
+			TIM_OC2PolarityConfig(TIM2,TIM_ICPolarity_Rising); //CC1P=0 设置为上升沿捕获 
 			bit_counter_up=0;//标记高电平数组为空
 			bit_counter_down=0;
 			TIM5CH1_CAPTURE_VAL=0; 			
 		 }
 		   
-		if (TIM_GetITStatus(TIM5, TIM_IT_CC2) != RESET)//TIM_IT_CC1,捕获1，发生捕获事件
+		if (TIM_GetITStatus(TIM2, TIM_IT_CC2) != RESET)//TIM_IT_CC1,捕获1，发生捕获事件
 		{	
 			timeout_flag=1;	//关闭update清零
 			if(TIM5CH1_CAPTURE_STA&0X40)		//捕获到一个下降沿 		
 			{	 	  			
-				TIM5CH1_CAPTURE_VAL=TIM_GetCapture2(TIM5);//TIM_GetCapture1
+				TIM5CH1_CAPTURE_VAL=TIM_GetCapture2(TIM2);//TIM_GetCapture1
 				
 				if((TIM5CH1_CAPTURE_VAL>min_interval)&&(TIM5CH1_CAPTURE_VAL<max_interval))//捕获到一个波特周期的高脉冲
 				{				 					
@@ -303,10 +322,10 @@ void TIM5_IRQHandler(void)
 //				if((bit_counter_down>=BIT_SYNC_GROUPS)||(bit_counter_up>=BIT_SYNC_GROUPS)){bit_counter_down=0;bit_counter_up=0;}		   //3
 				TIM5CH1_CAPTURE_STA&=0XBF; //清除上升沿捕获标志位，准备接收下一个上升沿
 				TIM5CH1_CAPTURE_STA|=0X20;//低电平使能计数标志位，第一个1码后使能0码计数器
-		   		TIM_OC2PolarityConfig(TIM5,TIM_ICPolarity_Rising); //CC1P=0 设置为上升沿捕获
+		   		TIM_OC2PolarityConfig(TIM2,TIM_ICPolarity_Rising); //CC1P=0 设置为上升沿捕获
 			}else//还未开始,第一次捕获上升沿
 			{  
-				TIM5CH1_DOWN_CAPTURE_VAL=TIM_GetCapture2(TIM5)-TIM5CH1_CAPTURE_VAL;//TIM_GetCapture1,得到低电平持续的时间
+				TIM5CH1_DOWN_CAPTURE_VAL=TIM_GetCapture2(TIM2)-TIM5CH1_CAPTURE_VAL;//TIM_GetCapture1,得到低电平持续的时间
 				if((TIM5CH1_DOWN_CAPTURE_VAL>min_interval)&&(TIM5CH1_DOWN_CAPTURE_VAL<max_interval)) //捕获到1个波特周期的低电平
 				{
 					if(TIM5CH1_CAPTURE_STA&0X20) //低电平计数已经使能
@@ -350,7 +369,7 @@ void TIM5_IRQHandler(void)
 			    if((TIM5CH1_CAPTURE_STA&0X07)>=(BIT_SYNC_GROUPS-2))//捕获到连续的3对10码或以上，上升沿时计算平均抽判时刻，则开始巴克码验证
 				{
 					TIM5CH1_CAPTURE_STA|=0X80; //得到位同步头！！！
-					TIM_ITConfig(TIM5,TIM_IT_CC2,DISABLE);//TIM_IT_CC1,关闭输入捕获，准备接收巴克码
+					TIM_ITConfig(TIM2,TIM_IT_CC2,DISABLE);//TIM_IT_CC1,关闭输入捕获，准备接收巴克码
 					bit_SYCN_sum=0;
 					for(i=0;i<bit_counter_up;i++)
 					{
@@ -370,7 +389,7 @@ void TIM5_IRQHandler(void)
 						delay_us((max_interval+min_interval)/4-bit_SYCN_sum-10);//码元间隔1ms，码元的中间位置为最佳抽判时刻,50为由示波器观察抽判时刻后的修正
 					}
 					buf_barker[10]=GPIO_ReadInputDataBit(GPIOA,GPIO_Pin_1);//位同步后，新到达的第一位存储在巴克码buf的第10位
-					TIM5->ARR=(max_interval+min_interval)/2-1;//0X0031;//重新状态定时器的值，1ms中断，对PAin(0)抽判一次(0x0030则会隔几个码元多采样一次；0X0031效果比较好；0X0032则会隔几个少采样一次)
+					TIM2->ARR=(max_interval+min_interval)/2-1;//0X0031;//重新状态定时器的值，1ms中断，对PAin(0)抽判一次(0x0030则会隔几个码元多采样一次；0X0031效果比较好；0X0032则会隔几个少采样一次)
 					bit_counter_down=0;
 					bit_counter_up=0;
 					barker_counter=0;//巴克码比较次数的清零
@@ -378,16 +397,16 @@ void TIM5_IRQHandler(void)
 				}
 				if((bit_counter_down>=BIT_SYNC_GROUPS)||(bit_counter_up>=BIT_SYNC_GROUPS)){bit_counter_down=0;bit_counter_up=0;}		   //3
 				TIM5CH1_CAPTURE_VAL=0;	
-	 			TIM_SetCounter(TIM5,0);//计数器值清零
+	 			TIM_SetCounter(TIM2,0);//计数器值清零
 				TIM5CH1_CAPTURE_STA|=0X40;		//标记捕获到了上升沿
-	   			TIM_OC2PolarityConfig(TIM5,TIM_ICPolarity_Falling);		//CC1P=1 设置为下降沿捕获
+	   			TIM_OC2PolarityConfig(TIM2,TIM_ICPolarity_Falling);		//CC1P=1 设置为下降沿捕获
 			}		    
 		}//end of 捕获事件			     	    					   
  	}
 /****************************************巴克码校验*******************************************/	
 	else if((TIM5CH1_CAPTURE_STA&0X80)&&((TIM5CH1_CAPTURE_STA&0X10)==0))//位同步之后，开始判断巴克码的帧同步
 	{
-	   if (TIM_GetITStatus(TIM5, TIM_IT_Update) != RESET)//位同步捕获完成后的超时采样
+	   if (TIM_GetITStatus(TIM2, TIM_IT_Update) != RESET)//位同步捕获完成后的超时采样
 	   {
 		   buf_barker[11]=GPIO_ReadInputDataBit(GPIOA,GPIO_Pin_1);//位同步后，新到达的bit
 		   PBout(6)=!PBout(6);//抽判时刻测试
@@ -412,9 +431,9 @@ void TIM5_IRQHandler(void)
 			   frame_window_counter=0;
 			   decoded_frame_index=0;
 	
-			   TIM5->ARR=0XFFFF;//0X0031;//重新状态定时器的值
-			   TIM_ITConfig(TIM5,TIM_IT_CC2,ENABLE);//TIM_IT_CC1,接收新的帧，打开输入捕获
-			   TIM_OC2PolarityConfig(TIM5,TIM_ICPolarity_Rising); //CC1P=0 设置为上升沿捕获
+			   TIM2->ARR=0XFFFF;//0X0031;//重新状态定时器的值
+			   TIM_ITConfig(TIM2,TIM_IT_CC2,ENABLE);//TIM_IT_CC1,接收新的帧，打开输入捕获
+			   TIM_OC2PolarityConfig(TIM2,TIM_ICPolarity_Rising); //CC1P=0 设置为上升沿捕获
 	
 			   TIM5CH1_CAPTURE_STA=0;
 			   TIM_Cmd(TIM3, ENABLE);
@@ -426,7 +445,7 @@ void TIM5_IRQHandler(void)
 /****************************************帧内容接收*******************************************/		
 	else if((TIM5CH1_CAPTURE_STA&0X80)&&(TIM5CH1_CAPTURE_STA&0X10)&&((TIM5CH1_CAPTURE_STA&0X08)==0))//巴克码校验完毕，准备接收帧中数据
 	{
-		if (TIM_GetITStatus(TIM5, TIM_IT_Update)!= RESET)//开始接收巴克码后面的数据
+		if (TIM_GetITStatus(TIM2, TIM_IT_Update)!= RESET)//开始接收巴克码后面的数据
 		{
 			if(frame_index<frame_lengths)
 			{					 
@@ -469,11 +488,11 @@ void TIM5_IRQHandler(void)
 			{
 				PBout(6)=0;
 				TIM5CH1_CAPTURE_STA|=0X08;//帧收完
-				TIM5->ARR=0XFFFF;//0X0031;//重新状态定时器的值
-				TIM_ITConfig(TIM5,TIM_IT_CC2,ENABLE);//TIM_IT_CC1,接收新的帧，打开输入捕获
-				TIM_OC2PolarityConfig(TIM5,TIM_ICPolarity_Rising); //CC1P=0 设置为上升沿捕获
-				TIM_ITConfig(TIM5, TIM_IT_Update|TIM_IT_CC2, DISABLE); //关中断
-				TIM_Cmd(TIM5,DISABLE);//原始帧接收完毕，关闭定时器节约资源，等待解帧处理，处理完才使能接受下一帧
+				TIM2->ARR=0XFFFF;//0X0031;//重新状态定时器的值
+				TIM_ITConfig(TIM2,TIM_IT_CC2,ENABLE);//TIM_IT_CC1,接收新的帧，打开输入捕获
+				TIM_OC2PolarityConfig(TIM2,TIM_ICPolarity_Rising); //CC1P=0 设置为上升沿捕获
+				TIM_ITConfig(TIM2, TIM_IT_Update|TIM_IT_CC2, DISABLE); //关中断
+				TIM_Cmd(TIM2,DISABLE);//原始帧接收完毕，关闭定时器节约资源，等待解帧处理，处理完才使能接受下一帧
 				
 				printf("\r\n广播类型G=%d\r\n",tmp_buf);
 				printf("\r\n比特收完!\r\n");
@@ -482,6 +501,69 @@ void TIM5_IRQHandler(void)
 		}
 	}
 
-    TIM_ClearITPendingBit(TIM5, TIM_IT_CC2|TIM_IT_Update); //TIM_IT_CC1,清除中断标志位	  
+    TIM_ClearITPendingBit(TIM2, TIM_IT_CC2|TIM_IT_Update); //TIM_IT_CC1,清除中断标志位	  
 }
+
+/***********************定时器4***************************/
+void TIM4_Int_Init(u16 arr,u16 psc)
+{
+    TIM_TimeBaseInitTypeDef  TIM_TimeBaseStructure;
+	NVIC_InitTypeDef NVIC_InitStructure;
+
+	RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM4, ENABLE); //时钟使能
+	
+	//定时器TIM3初始化
+	TIM_TimeBaseStructure.TIM_Period = arr; //设置在下一个更新事件装入活动的自动重装载寄存器周期的值	
+	TIM_TimeBaseStructure.TIM_Prescaler =psc; //设置用来作为TIMx时钟频率除数的预分频值
+	TIM_TimeBaseStructure.TIM_ClockDivision = TIM_CKD_DIV1; //设置时钟分割:TDTS = Tck_tim
+	TIM_TimeBaseStructure.TIM_CounterMode = TIM_CounterMode_Up;  //TIM向上计数模式
+	TIM_TimeBaseInit(TIM4, &TIM_TimeBaseStructure); //根据指定的参数初始化TIMx的时间基数单位
+ 
+	TIM_ITConfig(TIM4,TIM_IT_Update,ENABLE ); //使能指定的TIM3中断,允许更新中断
+
+	//中断优先级NVIC设置
+	NVIC_InitStructure.NVIC_IRQChannel = TIM4_IRQn;  //TIM3中断
+	NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 0;  //先占优先级0级
+	NVIC_InitStructure.NVIC_IRQChannelSubPriority = 3;  //从优先级3级
+	NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE; //IRQ通道被使能
+	NVIC_Init(&NVIC_InitStructure);  //初始化NVIC寄存器
+
+
+	TIM_Cmd(TIM4, DISABLE);  //关闭TIMx							 
+}
+
+extern u16 alarm_frame_index;//报警索引的全局变量，用于timer.c中
+//2 u8 alarm_over=0;//10次报警是否播放完毕。0：完毕；1：未完；
+u8 alarm_times=0;//报警播放次数
+//定时器4中断服务程序
+void TIM4_IRQHandler(void)   //TIM4中断
+{
+	static u8 count=0;
+   	if (TIM_GetITStatus(TIM4, TIM_IT_Update) != RESET)  //检查TIM4更新中断发生与否
+		{
+			TIM_ClearITPendingBit(TIM4, TIM_IT_Update);  //清除TIMx更新中断标志
+			if(alarm_times<10){//收到一条报警指令播放十次 
+			if(count==2){//计数3次，处理一次
+				DKA065(alarm_frame_index);//播放报警语音
+				alarm_times++;
+				count=0;				
+			}else{
+				count++;	
+			}
+			}else{ //播放完毕
+//1				alarm_over=0;
+				alarm_times=0;
+				alarm_frame_index=0;
+				DKA_SWITCH=0;//开关拨回语音模式
+				TIM_Cmd(TIM4,DISABLE);//关闭超时判断定时器
+			}
+				
+		}
+}
+
+
+
+
+
+
 

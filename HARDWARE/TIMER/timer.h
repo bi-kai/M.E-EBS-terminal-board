@@ -3,8 +3,8 @@
 #include "sys.h"
 
 #define FSK_SPEED 1000//码元间隔1ms
-#define min_interval FSK_SPEED-100//脉冲的最小波特周期,100为误差容限
-#define max_interval FSK_SPEED+100//脉冲的最大波特周期
+#define min_interval FSK_SPEED-300//脉冲的最小波特周期,100为误差容限
+#define max_interval FSK_SPEED+300//脉冲的最大波特周期
 #define BIT_SYNC_GROUPS 7//位同步10码对的数量
 
 #define ORIGEN_FRAMESIZE 1100//接收数据帧的最大缓冲区
@@ -20,6 +20,10 @@
 
 void TIM3_Int_Init(u16 arr,u16 psc);
 void TIM3_PWM_Init(u16 arr,u16 psc);
-void TIM5_Cap_Init(u16 arr,u16 psc);
+void TIM2_Cap_Init(u16 arr,u16 psc);
+void TIM4_Int_Init(u16 arr,u16 psc);
 
+extern void communication_right(void);//唤醒成功
+extern void communication_wrong(void);//广播结束
+extern void DKA065(int index);
 #endif

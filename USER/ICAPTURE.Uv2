@@ -23,7 +23,7 @@ File 3,1,<..\SYSTEM\delay\delay.c><delay.c>
 File 3,1,<..\SYSTEM\sys\sys.c><sys.c>
 File 3,1,<..\SYSTEM\usart\usart.c><usart.c>
 File 4,1,<..\CORE\core_cm3.c><core_cm3.c>
-File 4,2,<..\CORE\startup_stm32f10x_hd.s><startup_stm32f10x_hd.s>
+File 4,2,<..\CORE\startup_stm32f10x_md.s><startup_stm32f10x_md.s>
 File 5,1,<..\STM32F10x_FWLib\src\misc.c><misc.c>
 File 5,1,<..\STM32F10x_FWLib\src\stm32f10x_gpio.c><stm32f10x_gpio.c>
 File 5,1,<..\STM32F10x_FWLib\src\stm32f10x_rcc.c><stm32f10x_rcc.c>
@@ -36,13 +36,13 @@ File 5,1,<..\STM32F10x_FWLib\src\stm32f10x_flash.c><stm32f10x_flash.c>
 
 
 Options 1,0,0  // Target 'Target 1'
- Device (STM32F103ZE)
+ Device (STM32F103RB)
  Vendor (STMicroelectronics)
- Cpu (IRAM(0x20000000-0x2000FFFF) IROM(0x8000000-0x807FFFF) CLOCK(8000000) CPUTYPE("Cortex-M3"))
+ Cpu (IRAM(0x20000000-0x20004FFF) IROM(0x8000000-0x801FFFF) CLOCK(8000000) CPUTYPE("Cortex-M3"))
  FlashUt ()
  StupF ("STARTUP\ST\STM32F10x.s" ("STM32 Startup Code"))
- FlashDR (UL2CM3(-O14 -S0 -C0 -N00("ARM Cortex-M3") -D00(1BA00477) -L00(4) -FO7 -FD20000000 -FC800 -FN1 -FF0STM32F10x_512 -FS08000000 -FL080000))
- DevID (4216)
+ FlashDR (UL2CM3(-O14 -S0 -C0 -N00("ARM Cortex-M3") -D00(1BA00477) -L00(4) -FO7 -FD20000000 -FC800 -FN1 -FF0STM32F10x_128 -FS08000000 -FL020000))
+ DevID (4231)
  Rgf (stm32f10x_lib.h)
  Mem ()
  C ()
@@ -84,14 +84,14 @@ Options 1,0,0  // Target 'Target 1'
  RVDEV ()
  ADSTFLGA { 0,12,0,2,99,0,0,66,0,0,0,0,0,0,0,0,0,0,0,0 }
  OCMADSOCM { 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }
- OCMADSIRAM { 0,0,0,0,32,0,0,1,0 }
- OCMADSIROM { 1,0,0,0,8,0,0,8,0 }
+ OCMADSIRAM { 0,0,0,0,32,0,80,0,0 }
+ OCMADSIROM { 1,0,0,0,8,0,0,2,0 }
  OCMADSXRAM { 0,0,0,0,0,0,0,0,0 }
- OCR_RVCT { 1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,8,0,0,8,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,32,0,0,1,0,0,0,0,0,0,0,0,0,0 }
+ OCR_RVCT { 1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,8,0,0,2,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,32,0,80,0,0,0,0,0,0,0,0,0,0,0 }
  RV_STAVEC ()
  ADSCCFLG { 5,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }
  ADSCMISC ()
- ADSCDEFN (STM32F10X_HD,USE_STDPERIPH_DRIVER)
+ ADSCDEFN (STM32F10X_MD,USE_STDPERIPH_DRIVER)
  ADSCUDEF ()
  ADSCINCD (..\HARDWARE\LED;..\SYSTEM\delay;..\SYSTEM\sys;..\SYSTEM\usart;..\USER;..\STM32F10x_FWLib\inc;..\CORE;..\HARDWARE\KEY;..\HARDWARE\TIMER;..\HARDWARE\gray;..\HARDWARE\WKUP;..\HARDWARE\AES;..\HARDWARE\STMFLASH)
  ADSASFLG { 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }
@@ -117,9 +117,9 @@ Options 1,0,0  // Target 'Target 1'
  ADSLDMC ()
  ADSLDIF ()
  ADSLDDW ()
-  OPTDL (SARMCM3.DLL)()(DARMSTM.DLL)(-pSTM32F103ZE)(SARMCM3.DLL)()(TARMSTM.DLL)(-pSTM32F103ZE)
+  OPTDL (SARMCM3.DLL)()(DARMSTM.DLL)(-pSTM32F103RB)(SARMCM3.DLL)()(TARMSTM.DLL)(-pSTM32F103RB)
   OPTDBG 49150,7,()()()()()()()()()() (Segger\JL2CM3.dll)()()()
- FLASH1 { 9,0,0,0,1,0,0,0,5,16,0,0,0,0,0,0,0,0,0,0 }
+ FLASH1 { 9,0,0,0,1,0,0,0,6,16,0,0,0,0,0,0,0,0,0,0 }
  FLASH2 (Segger\JL2CM3.dll)
  FLASH3 ("" ())
  FLASH4 ()
