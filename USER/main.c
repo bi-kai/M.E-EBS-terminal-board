@@ -38,16 +38,18 @@ u8 ecc_right=1;//ecc通过标志位。>1：未通过；0：通过；
 int main(void)
 {	
  	u16 index=0;
-	u8 i=0;//for循环
+	u8 i=0,t=0;//for循环
 	float sample_rate=0;
 	u8 gray_decode_buf1[24]={0};//格雷译码，24个码元为一组
 	u8 gray_decoded_buf1[24]={0};//格雷译码纠错后的24位码元，其前12位为原始信息的倒叙排列
 
 	u8 decoded_frame[DECODE_FRAMESIZE]={0};//格雷译码后数据的缓冲区
 	u8 frame_type=0;//帧类型
-	u16 test=0,test1=0;
-	
+	u16 test=0,test1=0;		
 	u16 len;
+
+	u8 index_frame_send=0;//串口回复信息帧下标
+	u8 frame_send_buf[100]={0};//串口回传缓冲区
 		
 	delay_init();	    	 //延时函数初始化	  
 	NVIC_Configuration(); 	 //设置NVIC中断分组2:2位抢占优先级，2位响应优先级
@@ -158,6 +160,30 @@ int main(void)
 						ecc_right=USART2_RX_BUF[9];//返回是否通过校验
 						if(ecc_right==0){//ecc通过
 							printf("ecc access!");
+
+							index_frame_send=0;
+							frame_send_buf[index_frame_send]='$';
+							index_frame_send++;
+							frame_send_buf[index_frame_send]='f';
+							index_frame_send++;
+							frame_send_buf[index_frame_send]='r';
+							index_frame_send++;
+							frame_send_buf[index_frame_send]='e';
+							index_frame_send++;
+							frame_send_buf[index_frame_send]='_';
+							index_frame_send++;
+							frame_send_buf[index_frame_send]=2;//2：本帧是通知MSP430非对称认证是否通过的帧
+							index_frame_send++;
+							frame_send_buf[index_frame_send]=1;//1：表示通过
+							index_frame_send++;
+							frame_send_buf[index_frame_send]=XOR(frame_send_buf,index_frame_send);
+							index_frame_send++;
+						
+							for(t=0;t<index_frame_send;t++)
+							{
+								USART_SendData(USART1, frame_send_buf[t]);//向串口发送数据
+								while(USART_GetFlagStatus(USART1,USART_FLAG_TC)!=SET);//等待发送结束
+							}
 						}else{//ecc未通过
 							printf("ecc wrong!");
 						}
@@ -190,10 +216,15 @@ void frame_continues(void){//续传帧处理函数
 
 void frame_wakeup_broadcast(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAMESIZE]){//广播唤醒帧处理函数
 	
-	u8 i=0;
+	u8 i=0,t=0;
 	u16 index=0;
 	u8 aes_bits[128]={0};//AES加密数据比特流
 	u8 aes_char[4][4]={0};//AES	128bits转换位4*4的u8矩阵
+	float fre_point=0;//打印测试,数据帧中提取出的通信频点
+	u8 communication_point=0;//数据帧中提取出的通信频点
+
+	u8 index_frame_send=0;//串口回复信息帧下标
+	u8 frame_send_buf[100]={0};//串口回传缓冲区
 	/**************************************AES校验**************************************************************/
 	for(i=0;i<128;i++){
 	   if(i<(decoded_frame_index-36)){//把格雷译码后的数据中后36位前的内容放到aes_bits[]中
@@ -231,6 +262,34 @@ void frame_wakeup_broadcast(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAM
 	if(i==36){TIM5CH1_CAPTURE_STA|=0X0400;}//AES验证通过
 /*************************************目标地址提取************************************************************/
 	if(TIM5CH1_CAPTURE_STA&0X0400){//AES检测通过
+		communication_point=decoded_frame[4]*128+decoded_frame[5]*64+decoded_frame[6]*32+decoded_frame[7]*16+decoded_frame[8]*8+decoded_frame[9]*4+decoded_frame[10]*2+decoded_frame[11];
+		index_frame_send=0;
+		frame_send_buf[index_frame_send]='$';
+		index_frame_send++;
+		frame_send_buf[index_frame_send]='f';
+		index_frame_send++;
+		frame_send_buf[index_frame_send]='r';
+		index_frame_send++;
+		frame_send_buf[index_frame_send]='e';
+		index_frame_send++;
+		frame_send_buf[index_frame_send]='_';
+		index_frame_send++;
+		frame_send_buf[index_frame_send]=1;//表示本帧是通知MSP430频点的问题
+		index_frame_send++;
+		frame_send_buf[index_frame_send]=communication_point;
+		index_frame_send++;
+		frame_send_buf[index_frame_send]=XOR(frame_send_buf,index_frame_send);
+		index_frame_send++;
+	
+		for(t=0;t<index_frame_send;t++)
+		{
+			USART_SendData(USART1, frame_send_buf[t]);//向串口发送数据
+			while(USART_GetFlagStatus(USART1,USART_FLAG_TC)!=SET);//等待发送结束
+		}
+
+		fre_point=76+communication_point/10;
+		printf("comunation point:%fMHz\r\n",fre_point);//打印通信频点的值
+
 		if((decoded_frame[2]*2+decoded_frame[3])==2){//广播唤醒帧处理
 			printf("broadcast wakeup AES SUCCESS\r\n\r\n");
 		} 

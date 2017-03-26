@@ -383,15 +383,16 @@ void TIM5_IRQHandler(void)
 //		   	   printf("\r\n帧同步!");
 		   }//帧缓冲清零，准备接收数据
 		   else if(barker_counter>30){
-		   frame_window_counter=0;
-		   decoded_frame_index=0;
-
-		   TIM5->ARR=0XFFFF;//0X0031;//重新状态定时器的值
-		   TIM_ITConfig(TIM5,TIM_IT_CC2,ENABLE);//TIM_IT_CC1,接收新的帧，打开输入捕获
-		   TIM_OC2PolarityConfig(TIM5,TIM_ICPolarity_Rising); //CC1P=0 设置为上升沿捕获
-
-		   TIM5CH1_CAPTURE_STA=0;
-		   printf("\r\n这里有问题哦!");}//移位30次还没有同步，则清零寄存器（位同步所用到的变量已在位同步成功/失败退出时清零）
+			   frame_window_counter=0;
+			   decoded_frame_index=0;
+	
+			   TIM5->ARR=0XFFFF;//0X0031;//重新状态定时器的值
+			   TIM_ITConfig(TIM5,TIM_IT_CC2,ENABLE);//TIM_IT_CC1,接收新的帧，打开输入捕获
+			   TIM_OC2PolarityConfig(TIM5,TIM_ICPolarity_Rising); //CC1P=0 设置为上升沿捕获
+	
+			   TIM5CH1_CAPTURE_STA=0;
+			   printf("\r\n这里有问题哦!");
+		   }//移位30次还没有同步，则清零寄存器（位同步所用到的变量已在位同步成功/失败退出时清零）
 		   barker_sum=0;//不满足验证，则从新开始
 	   }
 	}
