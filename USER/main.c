@@ -33,6 +33,7 @@ void frame_control(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAMESIZE]);/
 void frame_secure(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAMESIZE]);//认证帧处理函数
 unsigned char XOR(unsigned char *BUFF, u16 len);
 
+u8 ecc_right=1;//ecc通过标志位。>1：未通过；0：通过；
 
 int main(void)
 {	
@@ -45,6 +46,8 @@ int main(void)
 	u8 decoded_frame[DECODE_FRAMESIZE]={0};//格雷译码后数据的缓冲区
 	u8 frame_type=0;//帧类型
 	u16 test=0,test1=0;
+	
+	u16 len;
 		
 	delay_init();	    	 //延时函数初始化	  
 	NVIC_Configuration(); 	 //设置NVIC中断分组2:2位抢占优先级，2位响应优先级
@@ -142,7 +145,38 @@ int main(void)
 
 
 
+/******************************************************************串口2接收数据************************************************************************/
+		if(USART2_RX_STA&0x8000)
+		{			   
+			len=USART2_RX_STA&0x3fff;//得到此次接收到的数据长度
 
+			if((USART2_RX_BUF[0]=='$')&&(len>0)){
+				if(USART2_RX_BUF[len-1]==XOR(USART2_RX_BUF,len-1)){
+ 					/*******************************************安全芯片确认帧******************************************************************/
+					if((USART2_RX_BUF[1]=='e')&&(USART2_RX_BUF[2]=='c')&&(USART2_RX_BUF[3]=='c')&&(USART2_RX_BUF[4]=='_')&&(USART2_RX_BUF[5]=='_')){//连接帧
+						LED0=1;//关闭警示灯
+						ecc_right=USART2_RX_BUF[9];//返回是否通过校验
+						if(ecc_right==0){//ecc通过
+							printf("ecc access!");
+						}else{//ecc未通过
+							printf("ecc wrong!");
+						}
+						USART2_RX_STA=0;//处理完毕，允许接收下一帧
+						USART_ITConfig(USART2, USART_IT_RXNE, ENABLE);//打开中断
+					}
+ 					/*******************************************安全芯片请求重传*******************************************************************/
+				 	else if((USART2_RX_BUF[1]=='r')&&(USART2_RX_BUF[2]=='t')&&(USART2_RX_BUF[3]=='s')&&(USART2_RX_BUF[4]=='_')&&(USART2_RX_BUF[5]=='_')){//重传帧
+						LED0=1;//关闭警示灯,1、重传这里需要可能存在问题
+						frame_secure(decoded_frame_index,decoded_frame);//认证帧处理函数
+						USART2_RX_STA=0;//处理完毕，允许接收下一帧
+						USART_ITConfig(USART2, USART_IT_RXNE, ENABLE);//打开中断
+
+					}else {USART2_RX_STA=0;USART_ITConfig(USART2, USART_IT_RXNE, ENABLE);}//帧类型出错,请求重传
+				 }else{USART2_RX_STA=0;USART_ITConfig(USART2, USART_IT_RXNE, ENABLE);}//end of XOR，XOR出错请求重传
+				 }else {USART2_RX_STA=0;USART_ITConfig(USART2, USART_IT_RXNE, ENABLE);}//end of check '$'
+
+
+		}else {USART_ITConfig(USART2, USART_IT_RXNE, ENABLE);}//此处等待串口2回传数据，故usart2_works不能清零，但要添加对其为0的条件判断
 
 
 
@@ -302,6 +336,7 @@ void frame_secure(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAMESIZE]){//
    u16 t=0;
    u8 index_frame_safe=0;//终端向安全芯片传输的数据帧
    u8 frame_safe[130]={0};//数据帧buffer
+   LED0=0;//打开警示灯
 	frame_safe[index_frame_safe]='$';
 	index_frame_safe++;
 	frame_safe[index_frame_safe]='d';
@@ -344,11 +379,14 @@ void frame_secure(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAMESIZE]){//
 	frame_safe[index_frame_safe]='\n';
 	index_frame_safe++;
 	USART_ITConfig(USART2, USART_IT_RXNE, ENABLE);//暂时打开，只为调试
+	printf("\r\n认证帧：\r\n");
 	for(t=0;t<index_frame_safe;t++)//认证帧通过串口2发送给安全芯片
 	{
+		printf("%x ",frame_safe[t]);
 		USART_SendData(USART2, frame_safe[t]);//向串口发送数据
 		while(USART_GetFlagStatus(USART2,USART_FLAG_TC)!=SET);//等待发送结束
 	}
+	printf("\r\n");
 }
 
 
