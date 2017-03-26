@@ -18,6 +18,7 @@ File 2,1,<..\HARDWARE\TIMER\timer.c><timer.c>
 File 2,1,<..\HARDWARE\gray\gray.c><gray.c>
 File 2,1,<..\HARDWARE\WKUP\wkup.c><wkup.c>
 File 2,1,<..\HARDWARE\AES\encrypt.c><encrypt.c>
+File 2,1,<..\HARDWARE\STMFLASH\stmflash.c><stmflash.c>
 File 3,1,<..\SYSTEM\delay\delay.c><delay.c>
 File 3,1,<..\SYSTEM\sys\sys.c><sys.c>
 File 3,1,<..\SYSTEM\usart\usart.c><usart.c>
@@ -31,6 +32,7 @@ File 5,1,<..\STM32F10x_FWLib\src\stm32f10x_usart.c><stm32f10x_usart.c>
 File 5,1,<..\STM32F10x_FWLib\src\stm32f10x_bkp.c><stm32f10x_bkp.c>
 File 5,1,<..\STM32F10x_FWLib\src\stm32f10x_pwr.c><stm32f10x_pwr.c>
 File 5,1,<..\STM32F10x_FWLib\src\stm32f10x_exti.c><stm32f10x_exti.c>
+File 5,1,<..\STM32F10x_FWLib\src\stm32f10x_flash.c><stm32f10x_flash.c>
 
 
 Options 1,0,0  // Target 'Target 1'
@@ -91,7 +93,7 @@ Options 1,0,0  // Target 'Target 1'
  ADSCMISC ()
  ADSCDEFN (STM32F10X_HD,USE_STDPERIPH_DRIVER)
  ADSCUDEF ()
- ADSCINCD (..\HARDWARE\LED;..\SYSTEM\delay;..\SYSTEM\sys;..\SYSTEM\usart;..\USER;..\STM32F10x_FWLib\inc;..\CORE;..\HARDWARE\KEY;..\HARDWARE\TIMER;..\HARDWARE\gray;..\HARDWARE\WKUP;..\HARDWARE\AES)
+ ADSCINCD (..\HARDWARE\LED;..\SYSTEM\delay;..\SYSTEM\sys;..\SYSTEM\usart;..\USER;..\STM32F10x_FWLib\inc;..\CORE;..\HARDWARE\KEY;..\HARDWARE\TIMER;..\HARDWARE\gray;..\HARDWARE\WKUP;..\HARDWARE\AES;..\HARDWARE\STMFLASH)
  ADSASFLG { 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }
  ADSAMISC ()
  ADSADEFN ()

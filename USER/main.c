@@ -7,6 +7,12 @@
 #include "gray.h"
 #include "wkup.h"//唤醒，睡眠
 #include "encrypt.h"//AES加密
+#include "stmflash.h"
+
+#define FLASH_SAVE_ADDR  0X08070000 //设置FLASH 保存地址(必须为偶数)
+u8 TEXT_Buffer[4]={0};
+#define SIZE sizeof(TEXT_Buffer)//数组长度
+u8 flash_temp[4]={0};
 
 extern u16  TIM5CH1_CAPTURE_STA;		//输入捕获状态		    				
 extern u16	TIM5CH1_CAPTURE_VAL;	//输入捕获值
@@ -35,6 +41,11 @@ unsigned char XOR(unsigned char *BUFF, u16 len);
 
 u8 ecc_right=1;//ecc通过标志位。>1：未通过；0：通过；
 
+u32 frame_counters=0;//唤醒帧中bits转帧计数器
+u32 source_addres=0;//唤醒帧中bits转源地址
+u32 target_address_start=0;//唤醒帧中bits转目标起始地址
+u32 target_address_end=0;//唤醒帧中bits转目标终止地址
+
 int main(void)
 {	
  	u16 index=0;
@@ -62,6 +73,13 @@ int main(void)
 	LED1=0;
  	TIM5_Cap_Init(0XFFFF,72-1);	//以1Mhz的频率计数,0xFFFF为65.535ms
 	TIM3_Int_Init(9999,7199);//5hz的计数频率 
+
+	TEXT_Buffer[0]=0;//先对flash帧计数器初始化为0
+	TEXT_Buffer[1]=0;
+	TEXT_Buffer[2]=0;
+	TEXT_Buffer[3]=0;
+	STMFLASH_Write(FLASH_SAVE_ADDR,(u16*)TEXT_Buffer,SIZE);//把帧计数值分四个字节保存到flash中
+
    	while(1)
 	{	  		 		 
 //接收完信道中的完整一帧后，对其格雷译码，还原出原始数据，存入decoded_frame[]中
@@ -259,16 +277,14 @@ void frame_wakeup_broadcast(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAM
 	u16 index=0;
 	u8 aes_bits[128]={0};//AES加密数据比特流
 	u8 aes_char[4][4]={0};//AES	128bits转换位4*4的u8矩阵
-	float fre_point=0;//打印测试,数据帧中提取出的通信频点
+	double fre_point=0;//打印测试,数据帧中提取出的通信频点
 	u8 communication_point=0;//数据帧中提取出的通信频点
 	u8 xorsum=0;
 	u8 index_frame_send=0;//串口回复信息帧下标
 	u8 frame_send_buf[100]={0};//串口回传缓冲区
+	u32 native_frame_nums=0;//本地保存的帧计数器值，用于比较到来帧是否是最新的
 
-	u32 frame_counters=0;//唤醒帧中bits转帧计数器
-	u32 source_addres=0;//唤醒帧中bits转源地址
-	u32 target_address_start=0;//唤醒帧中bits转目标起始地址
-	u32 target_address_end=0;//唤醒帧中bits转目标终止地址
+
 	/**************************************AES校验**************************************************************/
 	for(i=0;i<128;i++){
 	   if(i<(decoded_frame_index-36)){//把格雷译码后的数据中后36位前的内容放到aes_bits[]中
@@ -318,9 +334,9 @@ void frame_wakeup_broadcast(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAM
 		index_frame_send++;
 		frame_send_buf[index_frame_send]='_';
 		index_frame_send++;
-		frame_send_buf[index_frame_send]=1;//表示本帧是通知MSP430频点的问题,因为STM32不知道通信频点是多少
+		frame_send_buf[index_frame_send]=1;//表示本帧是通知MSP430频点的问题,因为STM32不知道通信频点是多少.1:广播；2：单播；3：组播；
 		index_frame_send++;
-		frame_send_buf[index_frame_send]=communication_point;
+		frame_send_buf[index_frame_send]=communication_point+0x30;//通信频点值可能出现0x0d,0x24
 		index_frame_send++;
 		xorsum=XOR(frame_send_buf,index_frame_send);
 		if((xorsum=='$')||(xorsum==0x0d))xorsum++;
@@ -337,13 +353,37 @@ void frame_wakeup_broadcast(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAM
 			while(USART_GetFlagStatus(USART1,USART_FLAG_TC)!=SET);//等待发送结束
 		}
 
-		fre_point=76+communication_point/10;
+		fre_point=76+(double)communication_point/10.0;
 		printf("comunation point:%fMHz\r\n",fre_point);//打印通信频点的值
 
+		frame_counters=0;
 		for(index=0;index<32;index++){
 			frame_counters|=decoded_frame[decoded_frame_index-72+index]<<(31-index);
 		}
 		printf("frame_counter:%d\r\n",frame_counters);//打印通信频点的值
+		STMFLASH_Read(FLASH_SAVE_ADDR,(u16*)flash_temp,SIZE);
+		native_frame_nums=flash_temp[0]*256*256*256+flash_temp[1]*256*256+flash_temp[2]*256+flash_temp[3];
+		if(native_frame_nums>frame_counters){
+			printf("frame is old.");
+			return;
+		}else{
+			TEXT_Buffer[0]=frame_counters/(256*256*256);
+			TEXT_Buffer[1]=frame_counters/(256*256);
+			TEXT_Buffer[2]=frame_counters/256;
+			TEXT_Buffer[3]=frame_counters%256;
+			STMFLASH_Write(FLASH_SAVE_ADDR,(u16*)TEXT_Buffer,SIZE);//把帧计数值分四个字节保存到flash中
+		}
+		source_addres=0;
+		for(index=0;index<30;index++){
+			source_addres|=decoded_frame[12+index]<<(29-index);//源地址在译码帧中从第12bits开始，共30bits
+		}
+		printf("source_addres:%d\r\n",source_addres);//打印电台ID
+
+
+
+
+
+
 
 
 
@@ -353,8 +393,26 @@ void frame_wakeup_broadcast(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAM
 		else if((decoded_frame[2]*2+decoded_frame[3])==1){//单播唤醒帧处理
 			printf("unicast wakeup AES SUCCESS\r\n\r\n");
 
+			target_address_start=0;
+			for(index=0;index<24;index++){
+				target_address_start|=decoded_frame[48+index]<<(23-index);//单播地址在译码帧中从第48bits开始，共24bits
+			}
+			printf("target_address_start:%d\r\n",target_address_start);//打印单播地址
+
 		}else if((decoded_frame[2]*2+decoded_frame[3])==3){//组播唤醒帧处理
 			printf("multicast wakeup AES SUCCESS\r\n\r\n");
+
+			target_address_start=0;
+			for(index=0;index<24;index++){
+				target_address_start|=decoded_frame[48+index]<<(23-index);//组播起始地址在译码帧中从第48bits开始，共24bits
+			}
+			printf("target_address_start:%d\r\n",target_address_start);//打印单播地址
+
+			target_address_end=0;
+			for(index=0;index<24;index++){
+				target_address_end|=decoded_frame[72+index]<<(23-index);//组播终止地址在译码帧中从第72bits开始，共24bits
+			}
+			printf("target_address_end:%d\r\n",target_address_end);//打印单播地址
 
 		}else printf("\r\nfinal wrong!!\r\n");   
 		   
@@ -372,6 +430,7 @@ void frame_control(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAMESIZE]){/
 	u16 index=0;
 	u8 aes_bits[128]={0};//AES加密数据比特流
 	u8 aes_char[4][4]={0};//AES	128bits转换位4*4的u8矩阵
+	u32 native_frame_nums=0;//本地保存的帧计数器值，用于比较到来帧是否是最新的
 	/**************************************AES校验**************************************************************/
 	for(i=0;i<128;i++){
 	   if(i<(decoded_frame_index-36)){//把格雷译码后的数据中后36位前的内容放到aes_bits[]中
@@ -411,10 +470,25 @@ void frame_control(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAMESIZE]){/
 		}
 		printf("\r\nwaring index=%d\r\n",index);
 
+		frame_counters=0;
 		for(index=0;index<32;index++){
 			frame_counters|=decoded_frame[decoded_frame_index-72+index]<<(31-index);
 		}
 		printf("frame_counter:%d\r\n",frame_counters);//打印通信频点的值
+		STMFLASH_Read(FLASH_SAVE_ADDR,(u16*)flash_temp,SIZE);
+		native_frame_nums=flash_temp[0]*256*256*256+flash_temp[1]*256*256+flash_temp[2]*256+flash_temp[3];
+		if(native_frame_nums>frame_counters){
+			printf("frame is old.");
+			return;
+		}else{
+			TEXT_Buffer[0]=frame_counters/(256*256*256);
+			TEXT_Buffer[1]=frame_counters/(256*256);
+			TEXT_Buffer[2]=frame_counters/256;
+			TEXT_Buffer[3]=frame_counters%256;
+			STMFLASH_Write(FLASH_SAVE_ADDR,(u16*)TEXT_Buffer,SIZE);//把帧计数值分四个字节保存到flash中
+		}
+
+
 
 		switch(index){
 			case 0:
