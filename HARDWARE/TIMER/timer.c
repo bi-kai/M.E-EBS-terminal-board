@@ -185,7 +185,6 @@ void TIM5_IRQHandler(void)
    static u8 timeout_flag=0;//0：TIM5 update溢出时间内没有码元捕获；1：溢出时间内有码元被捕获到。功能：防止帧过长，产生update清零	
    static u8 barker_counter=0;//巴克码移位比较次数，超过20次还没有帧同步上，则清空寄存器
    u16 bit_SYCN_sum=0;//位同步高低电平码元持续时间和
-   u8 gray_decode_wrongbits=0;//格雷译码，24位检测出的错误数量
 
    u8 gray_decode_buf[24]={0};//格雷译码，24个码元为一组
    u8 gray_decoded_buf[24]={0};//格雷译码纠错后的24位码元，其前12位为原始信息的倒叙排列
@@ -412,7 +411,7 @@ void TIM5_IRQHandler(void)
 				for(i=0;i<24;i++){
 					gray_decode_buf[i]=	receive_frame[i];//将接收缓冲区中未处理的数据放到缓冲窗中，准备格雷译码
 				}
-				gray_decode_wrongbits=decode_error_catch(gray_decode_buf,gray_decoded_buf);//格雷译码,纠错结果为gray_decoded_buf[]，前12位码元为原始数据的倒序排列
+				decode_error_catch(gray_decode_buf,gray_decoded_buf);//格雷译码,纠错结果为gray_decoded_buf[]，前12位码元为原始数据的倒序排列
 				i=gray_decoded_buf[11]*2+gray_decoded_buf[10];
 				printf("\r\n帧类型i=%d\r\n",i);
 				switch(i){

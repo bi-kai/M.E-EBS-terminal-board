@@ -30,7 +30,9 @@ void frame_continues(void);//续传帧处理函数
 void frame_wakeup_broadcast(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAMESIZE]);//广播唤醒帧处理函数
 //void frame_wakeup_unicast(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAMESIZE]);//单播组播唤醒帧处理函数
 void frame_control(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAMESIZE]);//控制帧处理函数
-void frame_secure(void);//认证帧处理函数
+void frame_secure(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAMESIZE]);//认证帧处理函数
+unsigned char XOR(unsigned char *BUFF, u16 len);
+
 
 int main(void)
 {	
@@ -39,7 +41,6 @@ int main(void)
 	float sample_rate=0;
 	u8 gray_decode_buf1[24]={0};//格雷译码，24个码元为一组
 	u8 gray_decoded_buf1[24]={0};//格雷译码纠错后的24位码元，其前12位为原始信息的倒叙排列
-	u8 gray_decode_wrongbits=0;//格雷译码，24位检测出的错误数量(与timer.c中的同名变量不是一个)
 
 	u8 decoded_frame[DECODE_FRAMESIZE]={0};//格雷译码后数据的缓冲区
 	u8 frame_type=0;//帧类型
@@ -48,6 +49,7 @@ int main(void)
 	delay_init();	    	 //延时函数初始化	  
 	NVIC_Configuration(); 	 //设置NVIC中断分组2:2位抢占优先级，2位响应优先级
 	uart_init(256000);	 //串口初始化为9600
+	uart2_init(9600);	 //串口2初始化为9600
  	LED_Init();			     //LED端口初始化	
 //	WKUP_Init(); //待机唤醒初始化
 	LED1=0;
@@ -61,7 +63,7 @@ int main(void)
 		for(i=0;i<24;i++){
 			gray_decode_buf1[i]=receive_frame[i+frame_window_counter*24];//将接收缓冲区中未处理的数据放到缓冲窗中，准备格雷译码
 		}
-		gray_decode_wrongbits=decode_error_catch(gray_decode_buf1,gray_decoded_buf1);//格雷译码,纠错结果为gray_decoded_buf[]，前12位码元为原始数据的倒序排列
+		decode_error_catch(gray_decode_buf1,gray_decoded_buf1);//格雷译码,纠错结果为gray_decoded_buf[]，前12位码元为原始数据的倒序排列
 		for(i=0;i<12;i++){
 			decoded_frame[decoded_frame_index]=gray_decoded_buf1[11-i];//格雷译码后数据的缓冲区
 			decoded_frame_index++;//格雷码译码后缓冲区数组的索引值
@@ -124,7 +126,7 @@ int main(void)
 					frame_control(decoded_frame_index,decoded_frame);//控制帧处理函数
 					break;//控制帧
 				case 3:
-					frame_secure();//认证帧处理函数
+					frame_secure(decoded_frame_index,decoded_frame);//认证帧处理函数
 					break;//认证帧
 			}
 
@@ -295,8 +297,71 @@ void frame_control(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAMESIZE]){/
 	} 
 }
 
-void frame_secure(void){//认证帧处理函数
+u8 index_safe_times=0;//认证帧发送次数计数器
+void frame_secure(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAMESIZE]){//认证帧处理函数,格雷译码后是468bits，每4bits转1byte，共117字节
+   u16 t=0;
+   u8 index_frame_safe=0;//终端向安全芯片传输的数据帧
+   u8 frame_safe[130]={0};//数据帧buffer
+	frame_safe[index_frame_safe]='$';
+	index_frame_safe++;
+	frame_safe[index_frame_safe]='d';
+	index_frame_safe++;
+	frame_safe[index_frame_safe]='a';
+	index_frame_safe++;
+	frame_safe[index_frame_safe]='t';
+	index_frame_safe++;
+	frame_safe[index_frame_safe]='_';
+	index_frame_safe++;
+	if (index_safe_times<200)
+	{
+		index_safe_times++;
+	} 
+	else
+	{
+		index_safe_times=0;
+	}
+	frame_safe[index_frame_safe]=index_safe_times;
+	index_frame_safe++;
+	frame_safe[index_frame_safe]=(decoded_frame_index/4)/256;
+	index_frame_safe++;
+	frame_safe[index_frame_safe]=(decoded_frame_index/4)%256;
+	index_frame_safe++;
 
+	for (t=0;t<decoded_frame_index/4;t++)
+	{
+		frame_safe[index_frame_safe]=decoded_frame[t*4]*8+decoded_frame[t*4+1]*4+decoded_frame[t*4+2]*2+decoded_frame[t*4+3]*1+0x30;//ASCII 0码对应十进制是0x30
+		index_frame_safe++;
+	}
+
+//	for(t=0;t<fm_frame_index_byte;t++){
+//		frame_safe[index_frame_safe]=fm_frame_byte[t]+0x30;
+//		index_frame_safe++;
+//	}
+	frame_safe[index_frame_safe]=XOR(frame_safe,index_frame_safe);
+	index_frame_safe++;
+	frame_safe[index_frame_safe]='\r';
+	index_frame_safe++;
+	frame_safe[index_frame_safe]='\n';
+	index_frame_safe++;
+	USART_ITConfig(USART2, USART_IT_RXNE, ENABLE);//暂时打开，只为调试
+	for(t=0;t<index_frame_safe;t++)//认证帧通过串口2发送给安全芯片
+	{
+		USART_SendData(USART2, frame_safe[t]);//向串口发送数据
+		while(USART_GetFlagStatus(USART2,USART_FLAG_TC)!=SET);//等待发送结束
+	}
 }
+
+
+unsigned char XOR(unsigned char *BUFF, u16 len)
+{
+	unsigned char result=0;
+	u16 i;
+	for(result=BUFF[0],i=1;i<len;i++)
+	{
+		result ^= BUFF[i];
+	}
+	return result;
+}
+
 
 
