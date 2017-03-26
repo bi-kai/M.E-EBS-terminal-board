@@ -3,6 +3,7 @@
 #include "usart.h"
 #include "delay.h"
 #include "gray.h"
+#include "stmflash.h"
 //////////////////////////////////////////////////////////////////////////////////	 
 //本程序只供学习使用，未经作者许可，不得用于其它任何用途
 //ALIENTEK Mini STM32开发板
@@ -51,12 +52,32 @@ void TIM3_Int_Init(u16 arr,u16 psc)
 							 
 }
 
+extern u32 frame_counters;//唤醒帧中bits转帧计数器
+u16 flash_framecounter_nums=0;//每隔5秒，计数到300，存储一次帧计数器的值
+
 void TIM3_IRQHandler(void)   //TIM3中断
 {
+	u8 flash_temp[4]={0};
+	u32 framecounter=0;
 	if (TIM_GetITStatus(TIM3, TIM_IT_Update) != RESET) //检查指定的TIM中断发生与否:TIM 中断源 
 		{
 			TIM_ClearITPendingBit(TIM3, TIM_IT_Update);  //清除TIMx的中断待处理位:TIM 中断源 
 			LED1=!LED1;
+			if(flash_framecounter_nums<20){
+				flash_framecounter_nums++;
+			}else{ //开始存储到flash中
+				STMFLASH_Read(0X08070000,(u16*)flash_temp,4);
+				framecounter=flash_temp[0]*256*256*256+flash_temp[1]*256*256+flash_temp[2]*256+flash_temp[3];//启动时读入flash中的帧计数器值
+				if(framecounter<frame_counters){
+				 	flash_temp[0]=frame_counters/(256*256*256);
+					flash_temp[1]=frame_counters/(256*256);
+					flash_temp[2]=frame_counters/256;
+					flash_temp[3]=frame_counters%256;
+					STMFLASH_Write(0X08070000,(u16*)flash_temp,4);//把帧计数值分四个字节保存到flash中
+					flash_framecounter_nums=0;
+				}
+				
+			}
 			
 		}
 }
@@ -191,7 +212,7 @@ void TIM5_IRQHandler(void)
  
    u8 i=0;  //数组for循环的索引
 // signed char temp=0;
-   
+   TIM_Cmd(TIM3,DISABLE);//关闭TIM3   
 /*********************************位同步捕获*************************************/   
  	if((TIM5CH1_CAPTURE_STA&0X80)==0)//位同步捕获，还未成功捕获(优先捕获1码)	
 	{	  
@@ -417,7 +438,7 @@ void TIM5_IRQHandler(void)
 				printf("\r\n帧类型i=%d\r\n",i);
 				switch(i){
 					case 0:
-					frame_lengths=ORIGEN_FRAMESIZE-20;//待修改
+					frame_lengths=LENGTHS_SECUREFRAME;//待修改
 					break;//续传帧
 					case 1:
 					tmp_buf=gray_decoded_buf[9]*2+gray_decoded_buf[8];
@@ -450,6 +471,7 @@ void TIM5_IRQHandler(void)
 				
 				printf("\r\n广播类型G=%d\r\n",tmp_buf);
 				printf("\r\n比特收完!\r\n");
+				TIM_Cmd(TIM3, ENABLE);
 			}
 		}
 	}

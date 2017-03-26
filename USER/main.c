@@ -13,6 +13,10 @@
 u8 TEXT_Buffer[4]={0};
 #define SIZE sizeof(TEXT_Buffer)//数组长度
 u8 flash_temp[4]={0};
+#define FLASH_STATE_ADDR  FLASH_SAVE_ADDR+10 //用来标记帧计数数组是否是初次初始化，首次初始化后，将值标记为0x33，复位时首先检测该值是否是0x30
+u8 STATE_Buffer[2]={0};
+#define STATE_SIZE sizeof(STATE_Buffer)//数组长度
+u8 STATE_temp[2]={0};
 
 extern u16  TIM5CH1_CAPTURE_STA;		//输入捕获状态		    				
 extern u16	TIM5CH1_CAPTURE_VAL;	//输入捕获值
@@ -74,12 +78,23 @@ int main(void)
  	TIM5_Cap_Init(0XFFFF,72-1);	//以1Mhz的频率计数,0xFFFF为65.535ms
 	TIM3_Int_Init(9999,7199);//5hz的计数频率 
 
-	TEXT_Buffer[0]=0;//先对flash帧计数器初始化为0
-	TEXT_Buffer[1]=0;
-	TEXT_Buffer[2]=0;
-	TEXT_Buffer[3]=0;
-	STMFLASH_Write(FLASH_SAVE_ADDR,(u16*)TEXT_Buffer,SIZE);//把帧计数值分四个字节保存到flash中
-
+	///////////////////读取FLASH中状态标志位，判断是否首次初始化////////////////////////////////
+	STMFLASH_Read(FLASH_STATE_ADDR,(u16*)STATE_temp,STATE_SIZE);
+	if(STATE_temp[0]!=0x33){//首次初始化
+		TEXT_Buffer[0]=0;//先对flash帧计数器初始化为0
+		TEXT_Buffer[1]=0;
+		TEXT_Buffer[2]=0;
+		TEXT_Buffer[3]=0;
+		STMFLASH_Write(FLASH_SAVE_ADDR,(u16*)TEXT_Buffer,SIZE);//把帧计数值分四个字节保存到flash中
+		frame_counters=0;
+		STATE_temp[0]=0x33;
+		STMFLASH_Write(FLASH_STATE_ADDR,(u16*)STATE_temp,STATE_SIZE);
+	}else{
+		STMFLASH_Read(FLASH_SAVE_ADDR,(u16*)flash_temp,SIZE);
+		frame_counters=flash_temp[0]*256*256*256+flash_temp[1]*256*256+flash_temp[2]*256+flash_temp[3];//启动时读入flash中的帧计数器值
+		
+	}
+	frame_window_counter=0;
    	while(1)
 	{	  		 		 
 //接收完信道中的完整一帧后，对其格雷译码，还原出原始数据，存入decoded_frame[]中
@@ -282,7 +297,7 @@ void frame_wakeup_broadcast(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAM
 	u8 xorsum=0;
 	u8 index_frame_send=0;//串口回复信息帧下标
 	u8 frame_send_buf[100]={0};//串口回传缓冲区
-	u32 native_frame_nums=0;//本地保存的帧计数器值，用于比较到来帧是否是最新的
+	u32 frame_nums=0;//从帧中提取的帧计数器值，用于比较到来帧是否是最新的
 
 
 	/**************************************AES校验**************************************************************/
@@ -356,22 +371,17 @@ void frame_wakeup_broadcast(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAM
 		fre_point=76+(double)communication_point/10.0;
 		printf("comunation point:%fMHz\r\n",fre_point);//打印通信频点的值
 
-		frame_counters=0;
+		frame_nums=0;
 		for(index=0;index<32;index++){
-			frame_counters|=decoded_frame[decoded_frame_index-72+index]<<(31-index);
+			frame_nums|=decoded_frame[decoded_frame_index-72+index]<<(31-index);
 		}
-		printf("frame_counter:%d\r\n",frame_counters);//打印通信频点的值
-		STMFLASH_Read(FLASH_SAVE_ADDR,(u16*)flash_temp,SIZE);
-		native_frame_nums=flash_temp[0]*256*256*256+flash_temp[1]*256*256+flash_temp[2]*256+flash_temp[3];
-		if(native_frame_nums>frame_counters){
+		printf("frame_nums:%d\r\n",frame_nums);//打印帧计数器值
+
+		if(frame_nums<=frame_counters){
 			printf("frame is old.");
 			return;
 		}else{
-			TEXT_Buffer[0]=frame_counters/(256*256*256);
-			TEXT_Buffer[1]=frame_counters/(256*256);
-			TEXT_Buffer[2]=frame_counters/256;
-			TEXT_Buffer[3]=frame_counters%256;
-			STMFLASH_Write(FLASH_SAVE_ADDR,(u16*)TEXT_Buffer,SIZE);//把帧计数值分四个字节保存到flash中
+			frame_counters=frame_nums;
 		}
 		source_addres=0;
 		for(index=0;index<30;index++){
@@ -430,7 +440,7 @@ void frame_control(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAMESIZE]){/
 	u16 index=0;
 	u8 aes_bits[128]={0};//AES加密数据比特流
 	u8 aes_char[4][4]={0};//AES	128bits转换位4*4的u8矩阵
-	u32 native_frame_nums=0;//本地保存的帧计数器值，用于比较到来帧是否是最新的
+	u32 frame_nums=0;//本地保存的帧计数器值，用于比较到来帧是否是最新的
 	/**************************************AES校验**************************************************************/
 	for(i=0;i<128;i++){
 	   if(i<(decoded_frame_index-36)){//把格雷译码后的数据中后36位前的内容放到aes_bits[]中
@@ -470,22 +480,17 @@ void frame_control(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAMESIZE]){/
 		}
 		printf("\r\nwaring index=%d\r\n",index);
 
-		frame_counters=0;
+		frame_nums=0;
 		for(index=0;index<32;index++){
-			frame_counters|=decoded_frame[decoded_frame_index-72+index]<<(31-index);
+			frame_nums|=decoded_frame[decoded_frame_index-72+index]<<(31-index);
 		}
-		printf("frame_counter:%d\r\n",frame_counters);//打印通信频点的值
-		STMFLASH_Read(FLASH_SAVE_ADDR,(u16*)flash_temp,SIZE);
-		native_frame_nums=flash_temp[0]*256*256*256+flash_temp[1]*256*256+flash_temp[2]*256+flash_temp[3];
-		if(native_frame_nums>frame_counters){
+		printf("frame_nums:%d\r\n",frame_nums);//打印帧计数器值
+
+		if(frame_nums<=frame_counters){
 			printf("frame is old.");
 			return;
 		}else{
-			TEXT_Buffer[0]=frame_counters/(256*256*256);
-			TEXT_Buffer[1]=frame_counters/(256*256);
-			TEXT_Buffer[2]=frame_counters/256;
-			TEXT_Buffer[3]=frame_counters%256;
-			STMFLASH_Write(FLASH_SAVE_ADDR,(u16*)TEXT_Buffer,SIZE);//把帧计数值分四个字节保存到flash中
+			frame_counters=frame_nums;
 		}
 
 
