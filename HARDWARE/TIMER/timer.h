@@ -16,6 +16,8 @@
 #define LENGTHS_CONTROLFRAME 193-11-2*BIT_SYNC_GROUPS 	//控制帧长
 #define LENGTHS_SECUREFRAME 961-11-2*BIT_SYNC_GROUPS	//认证帧长
 
+#define FLASH_CHECK_TIMES 10
+
 void TIM3_Int_Init(u16 arr,u16 psc);
 void TIM3_PWM_Init(u16 arr,u16 psc);
 void TIM5_Cap_Init(u16 arr,u16 psc);

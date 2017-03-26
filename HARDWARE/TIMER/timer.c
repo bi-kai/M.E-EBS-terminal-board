@@ -63,9 +63,9 @@ void TIM3_IRQHandler(void)   //TIM3中断
 		{
 			TIM_ClearITPendingBit(TIM3, TIM_IT_Update);  //清除TIMx的中断待处理位:TIM 中断源 
 			LED1=!LED1;
-			if(flash_framecounter_nums<10){
+			if(flash_framecounter_nums<FLASH_CHECK_TIMES){
 				flash_framecounter_nums++;
-			}else if(flag_main_busy==0){ //开始存储到flash中
+			}else if((flash_framecounter_nums>FLASH_CHECK_TIMES)&&(flag_main_busy==0)){ //开始存储到flash中
 				STMFLASH_Read(0X08070000,(u16*)flash_temp,4);
 				framecounter=flash_temp[0]*256*256*256+flash_temp[1]*256*256+flash_temp[2]*256+flash_temp[3];//启动时读入flash中的帧计数器值
 				if(framecounter<frame_counters){
@@ -347,7 +347,7 @@ void TIM5_IRQHandler(void)
 					bit_counter_up=0;
 				}
 
-			    if((TIM5CH1_CAPTURE_STA&0X07)>(BIT_SYNC_GROUPS-1))//捕获到连续的3对10码或以上，上升沿时计算平均抽判时刻，则开始巴克码验证
+			    if((TIM5CH1_CAPTURE_STA&0X07)>=(BIT_SYNC_GROUPS-2))//捕获到连续的3对10码或以上，上升沿时计算平均抽判时刻，则开始巴克码验证
 				{
 					TIM5CH1_CAPTURE_STA|=0X80; //得到位同步头！！！
 					TIM_ITConfig(TIM5,TIM_IT_CC2,DISABLE);//TIM_IT_CC1,关闭输入捕获，准备接收巴克码
