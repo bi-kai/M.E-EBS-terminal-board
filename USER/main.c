@@ -536,8 +536,9 @@ void frame_control(u16 decoded_frame_index,u8 decoded_frame[DECODE_FRAMESIZE]){/
 					alarm_frame_index=index;
 					DKA_SWITCH=1;//开关选择到DKA上
 					DKA065(index);//发报警音频
-					delay_ms(1300);
-					TIM4_Int_Init(7999,7199); //DKA占用喇叭的时间
+			//		delay_ms(1300);
+					TIM4->ARR=0X1F3F;
+			//		TIM4_Int_Init(7999,7199); //DKA占用喇叭的时间
 					TIM_Cmd(TIM4, ENABLE);  //打开TIMx //给DKA芯片流出播放时间
 				}
 //5			}

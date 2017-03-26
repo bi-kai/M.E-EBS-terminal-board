@@ -538,27 +538,57 @@ u8 alarm_times=0;//报警播放次数
 //定时器4中断服务程序
 void TIM4_IRQHandler(void)   //TIM4中断
 {
-	static u8 count=0;
+//	static u8 count=0;
+//   	if (TIM_GetITStatus(TIM4, TIM_IT_Update) != RESET)  //检查TIM4更新中断发生与否
+//		{
+//			TIM_ClearITPendingBit(TIM4, TIM_IT_Update);  //清除TIMx更新中断标志
+//			if(alarm_times<10){//收到一条报警指令播放十次 
+//			if(count==2){//计数3次，处理一次
+//				DKA065(alarm_frame_index);//播放报警语音
+//				alarm_times++;
+//				count=0;				
+//			}else{
+//				count++;	
+//			}
+//			}else{ //播放完毕
+////1				alarm_over=0;
+//				alarm_times=0;
+//				alarm_frame_index=0;
+//				DKA_SWITCH=0;//开关拨回语音模式
+//				TIM_Cmd(TIM4,DISABLE);//关闭超时判断定时器
+//			}
+//				
+//		}	 
+
+	static u8 count=0;//分频计数器
+	static u8 alarm_index=0;//正在播放的报警序号
    	if (TIM_GetITStatus(TIM4, TIM_IT_Update) != RESET)  //检查TIM4更新中断发生与否
-		{
-			TIM_ClearITPendingBit(TIM4, TIM_IT_Update);  //清除TIMx更新中断标志
-			if(alarm_times<10){//收到一条报警指令播放十次 
-			if(count==2){//计数3次，处理一次
-				DKA065(alarm_frame_index);//播放报警语音
-				alarm_times++;
-				count=0;				
-			}else{
-				count++;	
-			}
-			}else{ //播放完毕
-//1				alarm_over=0;
-				alarm_times=0;
-				alarm_frame_index=0;
-				DKA_SWITCH=0;//开关拨回语音模式
-				TIM_Cmd(TIM4,DISABLE);//关闭超时判断定时器
-			}
-				
+	{
+		if(alarm_index!=alarm_frame_index){
+			alarm_index=alarm_frame_index;
+			count=0; //此时是其他报警指令到来，将分频计数器清零。
 		}
+				
+		if(alarm_times<10){//收到一条报警指令播放十次 
+
+		if(count==2){//计数3次，处理一次
+			DKA065(alarm_frame_index);//播放报警语音
+			alarm_times++;
+			count=0;				
+		}else{
+			count++;	
+		}
+		}else{ //播放完毕
+//1				alarm_over=0;
+			alarm_index=0;
+			alarm_times=0;
+			alarm_frame_index=0;
+			DKA_SWITCH=0;//开关拨回语音模式
+			TIM_Cmd(TIM4,DISABLE);//关闭超时判断定时器
+		}
+	
+		TIM_ClearITPendingBit(TIM4, TIM_IT_Update);  //清除TIMx更新中断标志		
+	}
 }
 
 
